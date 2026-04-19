@@ -28,6 +28,12 @@ A mini ai agent built with pluggable tool access.
 https://excalidraw.com/#room=47d52a5a2add9e029c0d,1xykZrJI1P5_bIAK4dZFUg
 
 # .env
-SERP_API
 OPENROUTER_API_KEY
-GEMINI_API_KEY
+
+# Usage
+1. Download latest Go version and get the required API keys [here](https://openrouter.ai/workspaces/default/keys). Create a `.env` file and paste the key inside.
+2. `cd` to root directory of this project
+3. `go mod tidy` to install dependencies
+4. To run the project: `go run .` Test out a casual prompt like `Explain the theory of relativity in caveman language.`
+5. Let's test out agentic capabilities. The llm is constrained to `/llm_directory` as a safety sandbox. Try out this prompt: `Do i have a file called user_data.csv?`. It should say this file is not present. Without killing the session, create a file `user_data.csv` inside `/llm_directory` and reprompt the question. It should say it is present.
+6. Check out `common/logger/log.txt` for the system logs
