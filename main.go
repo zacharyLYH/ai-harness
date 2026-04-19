@@ -133,8 +133,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// make llm_directory able to read write by everyone by default
-
 	appLogger.SystemLog("Loaded %d tools: %v", len(tools), getToolNames(tools))
 	appLogger.UserPrint("Welcome to ai-harness project")
 
