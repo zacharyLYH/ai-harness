@@ -16,19 +16,20 @@ type Logger struct {
 
 // NewLogger creates a new logger instance
 func NewLogger() (*Logger, error) {
-	// Open log file in append mode, create if it doesn't exist
-	file, err := os.OpenFile("common/logger/log.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return nil, err
-	}
+    // os.O_TRUNC wipes the file if it exists. 
+    // os.O_CREATE creates it if it doesn't.
+    file, err := os.OpenFile("common/logger/log.txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+    if err != nil {
+        return nil, err
+    }
 
-	// Create a logger that writes to the file
-	fileLogger := log.New(file, "", 0)
+    // Create a logger that writes to the file
+    fileLogger := log.New(file, "", 0)
 
-	return &Logger{
-		fileLogger: fileLogger,
-		logFile:    file,
-	}, nil
+    return &Logger{
+        fileLogger: fileLogger,
+        logFile:    file,
+    }, nil
 }
 
 // Close closes the log file

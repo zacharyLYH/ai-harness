@@ -1,21 +1,27 @@
+"""
+{
+    "Name": "list_file",
+    "Description": "Lists files in the llm_directory using the ls command",
+    "Params": {
+        "Properties": [
+            {
+                "file_name": {
+                    "type": "string",
+                    "description": "The name of the file to look for (can be pattern or wildcard)"
+                }
+            }
+        ],
+        "Required": []
+    }
+}
+"""
 import subprocess
 import os
 
-"""
-Lists files in a specified directory using the ls command.
-
-Args:
-    file_name: The name of the file to look for (can be pattern or wildcard)
-    directory: The directory path to search
+def list_file(file_name: str = "") -> str:
+    # Hardcode the directory to /llm_directory for safety
+    directory = "/llm_directory"
     
-Returns:
-    String containing the output of the ls command
-    
-Raises:
-    FileNotFoundError: If the directory doesn't exist
-    subprocess.CalledProcessError: If the ls command fails
-"""
-def list_file(file_name: str, directory: str) -> str:
     # Validate directory exists
     if not os.path.exists(directory):
         raise FileNotFoundError(f"Directory '{directory}' does not exist")
@@ -44,17 +50,14 @@ if __name__ == "__main__":
     # Example usage
     import sys
     
-    if len(sys.argv) < 2:
-        print("Usage: python list_file.py <directory> [file_name]")
-        print("Example: python list_file.py /Users/zac/Desktop/ai-harness")
-        print("Example: python list_file.py /Users/zac/Desktop/ai-harness *.go")
-        sys.exit(1)
-    
-    directory = sys.argv[1]
-    file_name = sys.argv[2] if len(sys.argv) > 2 else ""
+    # Now only accepts optional file_name parameter
+    if len(sys.argv) > 1:
+        file_name = sys.argv[1]
+    else:
+        file_name = ""
     
     try:
-        result = list_file(file_name, directory)
+        result = list_file(file_name)
         print(result)
     except FileNotFoundError as e:
         print(f"Error: {e}")
