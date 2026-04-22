@@ -20,7 +20,7 @@ import os
 
 def list_file(file_name: str = "") -> str:
     # Hardcode the directory to /llm_directory for safety
-    directory = "/llm_directory"
+    directory = "llm_directory"
     
     # Validate directory exists
     if not os.path.exists(directory):
