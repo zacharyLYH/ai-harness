@@ -9,6 +9,7 @@ import (
 	"ai-harness/agent"
 	"ai-harness/common/logger"
 	"ai-harness/llm"
+	"ai-harness/skills"
 	"ai-harness/tools"
 
 	"github.com/joho/godotenv"
@@ -52,11 +53,20 @@ func main() {
 
 	appLogger.SystemLog("Loaded %d tools: %v", len(toolList), tools.GetToolNames(toolList))
 
+	// Load all skills from the llm_directory/skills directory
+	loadedSkills, err := skills.LoadAllSkills("llm_directory/skills")
+	if err != nil {
+		appLogger.SystemLog("Warning: could not load skills: %v", err)
+		loadedSkills = []skills.Skill{}
+	}
+	appLogger.SystemLog("Loaded %d skills", len(loadedSkills))
+
 	// Create LLM client
 	llmClient := llm.NewOpenRouterClient(appLogger)
 
 	// Create agent
 	agt := agent.New(llmClient, toolManager, appLogger)
+	agt.SetSkills(loadedSkills)
 
 	fmt.Println("Welcome to ai-harness project — type your prompt or /help")
 	printSeparator()

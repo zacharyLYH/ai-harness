@@ -37,3 +37,6 @@ OPENROUTER_API_KEY
 4. To run the project: `go run .` Test out a casual prompt like `Explain the theory of relativity in caveman language.`
 5. Let's test out agentic capabilities. The llm is constrained to `/llm_directory` as a safety sandbox. Try out this prompt: `Do i have a file called user_data.csv?`. It should say this file is not present. Without killing the session, create a file `user_data.csv` inside `/llm_directory` and reprompt the question. It should say it is present.
 6. Check out `common/logger/log.txt` for the system logs
+
+# Skills test
+1. Write me a poem according my requirements 
