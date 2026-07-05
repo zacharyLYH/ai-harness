@@ -76,7 +76,7 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) {
 		go showLoading(done)
 		response, err := a.llmClient.Chat(messages, apiTools)
 		done <- true
-		fmt.Print("\r     \r")
+		fmt.Print("\r                                \r")
 		if err != nil {
 			a.logger.SystemLog("Error calling LLM: %v", err)
 			return
@@ -193,7 +193,7 @@ func (a *Agent) HandleSlashCommands(cmd string) {
 		go showLoading(done)
 		compressed, err := a.compactHistory(fullText)
 		done <- true
-		fmt.Print("\r     \r")
+		fmt.Print("\r                                \r")
 		if err != nil {
 			fmt.Printf("  Error compacting: %v\n", err)
 			return

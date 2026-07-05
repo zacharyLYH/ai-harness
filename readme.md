@@ -13,6 +13,7 @@ OPENROUTER_API_KEY
 2. Consent request for tool calls if NeedUserConsent = true
 3. Skills
 4. Loading indicator in chat session
+5. Basic web search using duckduckgo api
 
 # Developer features
 1. Session logging into `common/logger/log.txt`
