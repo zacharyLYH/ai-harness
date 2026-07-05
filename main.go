@@ -99,6 +99,61 @@ type Usage struct {
 
 var toolAllowlist = make(map[string]bool)
 
+// handleSlashCommands processes slash commands like /context
+func handleSlashCommands(cmd string, tools []Tool, chatHistory *[]string) {
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return
+	}
+
+	switch parts[0] {
+	case "/context":
+		totalWords := 0
+		for _, entry := range *chatHistory {
+			totalWords += len(strings.Fields(entry))
+		}
+		fmt.Printf("Context: %d words (%d messages)\n", totalWords, len(*chatHistory))
+	case "/compact":
+		if len(*chatHistory) == 0 {
+			fmt.Println("No chat history to compact.")
+			return
+		}
+		fmt.Println("Compressing chat history...")
+		fullText := strings.Join(*chatHistory, "\n")
+		compressed, err := compactHistory(fullText)
+		if err != nil {
+			fmt.Printf("Error compacting: %v\n", err)
+			return
+		}
+		*chatHistory = []string{fmt.Sprintf("System: Compressed context — %s", compressed)}
+		fmt.Printf("Compressed to %d words.\n", len(strings.Fields(compressed)))
+	default:
+		fmt.Printf("Unknown command: %s\n", parts[0])
+	}
+}
+
+// compactHistory sends chat history to the LLM for compression and returns the compressed summary
+func compactHistory(text string) (string, error) {
+	messages := []Message{
+		{Role: "system", Content: "You are a chat history compressor. Compress the following conversation into a concise summary that preserves all key information, decisions, and context. Return ONLY the compressed text, no explanations."},
+		{Role: "user", Content: text},
+	}
+	response, err := callLLM(messages, nil)
+	if err != nil {
+		return "", err
+	}
+	if len(response.Choices) == 0 {
+		return "", fmt.Errorf("no response from LLM")
+	}
+	content := response.Choices[0].Message.Content
+	switch v := content.(type) {
+	case string:
+		return v, nil
+	default:
+		return fmt.Sprintf("%v", v), nil
+	}
+}
+
 func main() {
 	// Initialize logger
 	var loggerErr error
@@ -145,6 +200,12 @@ func main() {
 		scanner := bufio.NewScanner(os.Stdin)
 		if scanner.Scan() {
 			prompt := scanner.Text()
+
+			if strings.HasPrefix(prompt, "/") {
+				handleSlashCommands(prompt, tools, &chatHistory)
+				continue
+			}
+
 			agenticLoop(prompt, tools, &chatHistory)
 		}
 	}
