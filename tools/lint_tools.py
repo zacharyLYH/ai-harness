@@ -197,11 +197,21 @@ def check_file_structure(filepath: str) -> Dict[str, Any]:
         results['metadata'] = metadata
         
         # Validate metadata structure
-        required_fields = ['Name', 'Description', 'Params']
+        required_fields = ['Name', 'Description', 'NeedUserConsent', 'Params']
         
         for field in required_fields:
             if field not in metadata:
                 results['errors'].append(f"Metadata missing required field: {field}")
+        
+        # Validate NeedUserConsent is a boolean
+        if 'NeedUserConsent' in metadata:
+            if not isinstance(metadata['NeedUserConsent'], bool):
+                results['errors'].append(
+                    f"Metadata field 'NeedUserConsent' must be a boolean (true/false), "
+                    f"got {type(metadata['NeedUserConsent']).__name__}"
+                )
+            else:
+                results['successes'].append(f"NeedUserConsent is set to {metadata['NeedUserConsent']}")
         
         if not results['errors']:
             results['metadata_valid'] = True

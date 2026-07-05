@@ -2,6 +2,7 @@
 {
     "Name": "write_file",
     "Description": "Writes content to a file in the llm_directory",
+    "NeedUserConsent": true,
     "Params": {
         "Properties": [
             {

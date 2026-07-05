@@ -21,10 +21,11 @@ var appLogger *logger.Logger
 
 // Tool definition for our system
 type Tool struct {
-	ToolName    string
-	Description string
-	PathToTool  string
-	Params      ToolParams
+	ToolName        string
+	Description     string
+	PathToTool      string
+	Params          ToolParams
+	NeedUserConsent bool
 }
 
 type ToolParams struct {
@@ -95,6 +96,8 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 }
+
+var toolAllowlist = make(map[string]bool)
 
 func main() {
 	// Initialize logger
@@ -196,6 +199,20 @@ func agenticLoop(prompt string, tools []Tool, chatHistory *[]string) {
 		if response.Choices[0].FinishReason == "tool_calls" && len(assistantMessage.ToolCalls) > 0 {
 			toolCall := assistantMessage.ToolCalls[0]
 
+			// Check if tool call is allowed (consent check)
+			if !isToolAllowed(toolCall.Function.Name, tools) {
+				deniedMsg := fmt.Sprintf("Tool '%s' was not allowed by the user. Do not use this tool again unless the user explicitly asks you to.", toolCall.Function.Name)
+				*chatHistory = append((*chatHistory), fmt.Sprintf("Tool %s denied by user", toolCall.Function.Name))
+
+				messages = append(messages, assistantMessage)
+				messages = append(messages, Message{
+					Role:       "tool",
+					Content:    deniedMsg,
+					ToolCallID: toolCall.ID,
+				})
+				continue
+			}
+
 			// Execute the tool
 			toolResult := executeTool(toolCall.Function.Name, toolCall.Function.Arguments, tools)
 
@@ -220,6 +237,43 @@ func agenticLoop(prompt string, tools []Tool, chatHistory *[]string) {
 			break
 		}
 	}
+}
+
+// isToolAllowed checks if a tool call is allowed by the user.
+// If the tool has NeedUserConsent=true and is not in the allowlist, prompts the user.
+func isToolAllowed(toolName string, tools []Tool) bool {
+	// Find the tool
+	var tool *Tool
+	for _, t := range tools {
+		if t.ToolName == toolName {
+			tool = &t
+			break
+		}
+	}
+	if tool == nil {
+		return false
+	}
+
+	// If the tool does not need consent, always allow
+	if !tool.NeedUserConsent {
+		return true
+	}
+
+	// Check allowlist
+	if toolAllowlist[toolName] {
+		return true
+	}
+
+	// Prompt user for consent
+	fmt.Printf("\nTool '%s' wants to run. Allow? (y/N): ", toolName)
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	answer := strings.TrimSpace(scanner.Text())
+	if strings.ToLower(answer) == "y" {
+		toolAllowlist[toolName] = true
+		return true
+	}
+	return false
 }
 
 func createMessagesFromHistory(chatHistory []string) []Message {
@@ -567,11 +621,18 @@ func parseToolMetadata(content string, filePath string) (Tool, error) {
 		return Tool{}, fmt.Errorf("failed to convert params in %s: %v", filePath, err)
 	}
 
+	// Extract NeedUserConsent flag, default to false if not present
+	needUserConsent := false
+	if consentVal, ok := metadata["NeedUserConsent"].(bool); ok {
+		needUserConsent = consentVal
+	}
+
 	return Tool{
-		ToolName:    toolName,
-		Description: description,
-		PathToTool:  filePath,
-		Params:      toolParams,
+		ToolName:        toolName,
+		Description:     description,
+		PathToTool:      filePath,
+		Params:          toolParams,
+		NeedUserConsent: needUserConsent,
 	}, nil
 }
 

@@ -2,6 +2,7 @@
 {
     "Name": "list_file",
     "Description": "Lists files in the llm_directory using the ls command",
+    "NeedUserConsent": false,
     "Params": {
         "Properties": [
             {

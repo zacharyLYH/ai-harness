@@ -2,6 +2,7 @@
 {
     "Name": "read_file",
     "Description": "Reads the contents of a file from the llm_directory",
+    "NeedUserConsent": false,
     "Params": {
         "Properties": [
             {

@@ -2,6 +2,7 @@
 {
     "Name": "search_in_file",
     "Description": "Searches for a pattern in a file within the llm_directory",
+    "NeedUserConsent": false,
     "Params": {
         "Properties": [
             {
