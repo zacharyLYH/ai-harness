@@ -99,6 +99,25 @@ type Usage struct {
 
 var toolAllowlist = make(map[string]bool)
 
+func printSeparator() {
+	fmt.Println(strings.Repeat("━", 60))
+}
+
+func showLoading(done chan bool) {
+	frames := []string{"◐", "◓", "◑", "◒"}
+	i := 0
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			fmt.Printf("\r  %s Thinking...", frames[i%len(frames)])
+			i++
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
 // handleSlashCommands processes slash commands like /context
 func handleSlashCommands(cmd string, tools []Tool, chatHistory *[]string) {
 	parts := strings.Fields(cmd)
@@ -107,28 +126,36 @@ func handleSlashCommands(cmd string, tools []Tool, chatHistory *[]string) {
 	}
 
 	switch parts[0] {
+	case "/help":
+		fmt.Println("Available commands:")
+		fmt.Println("  /context  - Show context size (word/message count)")
+		fmt.Println("  /compact  - Compress chat history via LLM")
+		fmt.Println("  /help     - Show this help")
 	case "/context":
 		totalWords := 0
 		for _, entry := range *chatHistory {
 			totalWords += len(strings.Fields(entry))
 		}
-		fmt.Printf("Context: %d words (%d messages)\n", totalWords, len(*chatHistory))
+		fmt.Printf("  📊 Context: %d words (%d messages)\n", totalWords, len(*chatHistory))
 	case "/compact":
 		if len(*chatHistory) == 0 {
-			fmt.Println("No chat history to compact.")
+			fmt.Println("  No chat history to compact.")
 			return
 		}
-		fmt.Println("Compressing chat history...")
 		fullText := strings.Join(*chatHistory, "\n")
+		done := make(chan bool, 1)
+		go showLoading(done)
 		compressed, err := compactHistory(fullText)
+		done <- true
+		fmt.Print("\r     \r")
 		if err != nil {
-			fmt.Printf("Error compacting: %v\n", err)
+			fmt.Printf("  Error compacting: %v\n", err)
 			return
 		}
 		*chatHistory = []string{fmt.Sprintf("System: Compressed context — %s", compressed)}
-		fmt.Printf("Compressed to %d words.\n", len(strings.Fields(compressed)))
+		fmt.Printf("  ✅ Compressed to %d words.\n", len(strings.Fields(compressed)))
 	default:
-		fmt.Printf("Unknown command: %s\n", parts[0])
+		fmt.Printf("  Unknown command: %s\n", parts[0])
 	}
 }
 
@@ -192,14 +219,18 @@ func main() {
 	}
 
 	appLogger.SystemLog("Loaded %d tools: %v", len(tools), getToolNames(tools))
-	appLogger.UserPrint("Welcome to ai-harness project")
+	fmt.Println("Welcome to ai-harness project — type your prompt or /help")
+	printSeparator()
 
 	var chatHistory []string
 	for {
-		fmt.Print("> ")
+		fmt.Print("\n  > ")
 		scanner := bufio.NewScanner(os.Stdin)
 		if scanner.Scan() {
-			prompt := scanner.Text()
+			prompt := strings.TrimSpace(scanner.Text())
+			if prompt == "" {
+				continue
+			}
 
 			if strings.HasPrefix(prompt, "/") {
 				handleSlashCommands(prompt, tools, &chatHistory)
@@ -226,8 +257,12 @@ func agenticLoop(prompt string, tools []Tool, chatHistory *[]string) {
 
 	// Infinite loop until there are no tool calls
 	for {
-		// Send request
+		// Show loading spinner while calling LLM
+		done := make(chan bool, 1)
+		go showLoading(done)
 		response, err := callLLM(messages, apiTools)
+		done <- true
+		fmt.Print("\r     \r")
 		if err != nil {
 			appLogger.SystemLog("Error calling LLM: %v", err)
 			return
@@ -275,6 +310,7 @@ func agenticLoop(prompt string, tools []Tool, chatHistory *[]string) {
 			}
 
 			// Execute the tool
+			fmt.Printf("\n  ⚙ Running tool: %s\n", toolCall.Function.Name)
 			toolResult := executeTool(toolCall.Function.Name, toolCall.Function.Arguments, tools)
 
 			// Add tool execution to chat history
@@ -292,7 +328,9 @@ func agenticLoop(prompt string, tools []Tool, chatHistory *[]string) {
 			continue
 		} else {
 			// No tool calls, display the response and break the loop
-			appLogger.UserPrint("Assistant Response:\n%s", assistantContent)
+			printSeparator()
+			fmt.Println(assistantContent)
+			printSeparator()
 
 			// Break the infinite loop since there are no tool calls
 			break
