@@ -1,3 +1,11 @@
 .env
 common/logger/log.txt
-llm_directory
+# Ignore the entire directory contents, but not the directory itself
+llm_directory/*
+
+# Allow the skills directory
+!llm_directory/skills/
+
+# Ignore everything inside skills except the write-a-poem folder
+llm_directory/skills/*
+!llm_directory/skills/write-a-poem/

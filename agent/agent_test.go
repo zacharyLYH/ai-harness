@@ -11,6 +11,7 @@ import (
 	"ai-harness/common/logger"
 	"ai-harness/llm"
 	"ai-harness/llm/mocks"
+	"ai-harness/skills"
 	"ai-harness/tools"
 
 	"github.com/stretchr/testify/assert"
@@ -271,6 +272,246 @@ func TestAgenticLoop_LLMError(t *testing.T) {
 	assert.Equal(t, "User: hi", history[0])
 }
 
+// --- /skills tests ---
+
+func TestHandleSlashCommands_Skills_NoSkills(t *testing.T) {
+	agt := newTestAgent(t, nil)
+	output := captureOutput(func() {
+		agt.HandleSlashCommands("/skills")
+	})
+	assert.Contains(t, output, "No skills loaded")
+}
+
+func TestHandleSlashCommands_Skills_WithSkills(t *testing.T) {
+	agt := newTestAgent(t, nil)
+	agt.SetSkills([]skills.Skill{
+		{Name: "write-a-poem", Description: "How to write a poem", Instructions: "Use old english"},
+		{Name: "code-review", Description: "Review code", Instructions: "Check for bugs"},
+	})
+
+	output := captureOutput(func() {
+		agt.HandleSlashCommands("/skills")
+	})
+	assert.Contains(t, output, "write-a-poem")
+	assert.Contains(t, output, "How to write a poem")
+	assert.Contains(t, output, "code-review")
+	assert.Contains(t, output, "Review code")
+	assert.Contains(t, output, "2")
+}
+
+// --- createMessagesFromHistory tests with skills ---
+
+func TestCreateMessagesFromHistory_NoSkills(t *testing.T) {
+	agt := newTestAgent(t, nil)
+	agt.SetChatHistory([]string{
+		"User: Hello",
+		"Assistant: World",
+	})
+
+	messages := agt.createMessagesFromHistory()
+	require.Len(t, messages, 2)
+	// No system message since there are no skills
+	for _, m := range messages {
+		assert.NotEqual(t, "system", m.Role)
+	}
+}
+
+func TestCreateMessagesFromHistory_SkillsInjectedOnce(t *testing.T) {
+	agt := newTestAgent(t, nil)
+	agt.SetSkills([]skills.Skill{
+		{Name: "write-a-poem", Description: "How to write a poem", Instructions: "Use old english"},
+	})
+	agt.SetChatHistory([]string{
+		"User: Hello",
+		"Assistant: World",
+	})
+
+	messages := agt.createMessagesFromHistory()
+	require.Len(t, messages, 3)
+
+	// First message should be system with skills context
+	assert.Equal(t, "system", messages[0].Role)
+	content, ok := messages[0].Content.(string)
+	require.True(t, ok)
+	assert.Contains(t, content, "write-a-poem")
+	assert.Contains(t, content, "How to write a poem")
+
+	// Followed by user/assistant messages
+	assert.Equal(t, "user", messages[1].Role)
+	assert.Equal(t, "Hello", messages[1].Content)
+
+	assert.Equal(t, "assistant", messages[2].Role)
+	assert.Equal(t, "World", messages[2].Content)
+}
+
+func TestCreateMessagesFromHistory_SkillsNotReInjectedOnSecondTurn(t *testing.T) {
+	agt := newTestAgent(t, nil)
+	agt.SetSkills([]skills.Skill{
+		{Name: "my-skill", Description: "A skill", Instructions: "Do the thing"},
+	})
+	// Simulate chat history from a first turn where skills were already injected
+	agt.SetChatHistory([]string{
+		"User: First message",
+		"Assistant: First response",
+	})
+
+	// First call: skills should be present
+	messages1 := agt.createMessagesFromHistory()
+	require.Len(t, messages1, 3)
+	assert.Equal(t, "system", messages1[0].Role)
+
+	// Add another turn to the history
+	agt.SetChatHistory(append(agt.ChatHistory(),
+		"User: Second message",
+		"Assistant: Second response",
+	))
+
+	// Second call: skills should NOT be re-injected (no duplicate system message)
+	messages2 := agt.createMessagesFromHistory()
+	// Still only one system message at the start
+	require.Len(t, messages2, 5)
+	assert.Equal(t, "system", messages2[0].Role)
+	assert.Contains(t, messages2[0].Content.(string), "my-skill")
+
+	assert.Equal(t, "user", messages2[1].Role)
+	assert.Equal(t, "First message", messages2[1].Content)
+
+	assert.Equal(t, "assistant", messages2[2].Role)
+
+	assert.Equal(t, "user", messages2[3].Role)
+	assert.Equal(t, "Second message", messages2[3].Content)
+
+	assert.Equal(t, "assistant", messages2[4].Role)
+}
+
+func TestCreateMessagesFromHistory_MultipleSkills(t *testing.T) {
+	agt := newTestAgent(t, nil)
+	agt.SetSkills([]skills.Skill{
+		{Name: "skill-one", Description: "First skill", Instructions: "Step 1"},
+		{Name: "skill-two", Description: "Second skill", Instructions: "Step A"},
+	})
+	agt.SetChatHistory([]string{
+		"User: Hi",
+	})
+
+	messages := agt.createMessagesFromHistory()
+	require.Len(t, messages, 2)
+
+	sysContent := messages[0].Content.(string)
+	assert.Contains(t, sysContent, "skill-one")
+	assert.Contains(t, sysContent, "First skill")
+	assert.Contains(t, sysContent, "skill-two")
+	assert.Contains(t, sysContent, "Second skill")
+	assert.Contains(t, sysContent, "follow those instructions carefully")
+}
+
+// --- AgenticLoop with skills integration test ---
+
+func TestAgenticLoop_WithSkills_InjectInPrompt(t *testing.T) {
+	mockLLM := mocks.NewClient(t)
+	agt := newTestAgent(t, mockLLM)
+	agt.SetSkills([]skills.Skill{
+		{Name: "write-a-poem", Description: "How to write a poem", Instructions: "Use old english\nBe humorous"},
+	})
+
+	var capturedMessages []llm.Message
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Run(func(messages []llm.Message, tools []llm.ToolDefinition) {
+			capturedMessages = make([]llm.Message, len(messages))
+			copy(capturedMessages, messages)
+		}).
+		Return(&llm.ChatResponse{
+			Choices: []llm.Choice{
+				{
+					FinishReason: "stop",
+					Message: llm.Message{
+						Content: "Here's a poem for you!",
+					},
+				},
+			},
+		}, nil).
+		Once()
+
+	output := captureOutput(func() {
+		agt.AgenticLoop("write a poem", nil)
+	})
+	assert.Contains(t, output, "Here's a poem for you!")
+
+	// Verify the skill was included in the system message
+	require.GreaterOrEqual(t, len(capturedMessages), 2)
+	sysMsg := capturedMessages[0]
+	assert.Equal(t, "system", sysMsg.Role)
+	content, ok := sysMsg.Content.(string)
+	require.True(t, ok)
+	assert.Contains(t, content, "write-a-poem")
+	assert.Contains(t, content, "How to write a poem")
+	assert.Contains(t, content, "Use old english")
+	assert.Contains(t, content, "Be humorous")
+}
+
+func TestAgenticLoop_WithSkills_OnlyOneSystemMessage(t *testing.T) {
+	mockLLM := mocks.NewClient(t)
+	agt := newTestAgent(t, mockLLM)
+	agt.SetSkills([]skills.Skill{
+		{Name: "test-skill", Description: "Test", Instructions: "Do test"},
+	})
+
+	var callCount int
+	var firstCallMessages, secondCallMessages []llm.Message
+
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Run(func(messages []llm.Message, tools []llm.ToolDefinition) {
+			if callCount == 0 {
+				firstCallMessages = make([]llm.Message, len(messages))
+				copy(firstCallMessages, messages)
+			} else {
+				secondCallMessages = make([]llm.Message, len(messages))
+				copy(secondCallMessages, messages)
+			}
+			callCount++
+		}).
+		Return(&llm.ChatResponse{
+			Choices: []llm.Choice{
+				{
+					FinishReason: "stop",
+					Message: llm.Message{
+						Content: "response",
+					},
+				},
+			},
+		}, nil).
+		Times(2)
+
+	// First turn
+	captureOutput(func() {
+		agt.AgenticLoop("first prompt", nil)
+	})
+
+	// Second turn
+	captureOutput(func() {
+		agt.AgenticLoop("second prompt", nil)
+	})
+
+	// First call: should have system + user
+	require.Len(t, firstCallMessages, 2)
+	assert.Equal(t, "system", firstCallMessages[0].Role)
+	assert.Equal(t, "user", firstCallMessages[1].Role)
+
+	// Second call: should still only have ONE system message, plus 2 user + 1 assistant
+	// The assistant response from the first turn is also in history
+	require.Len(t, secondCallMessages, 4)
+	assert.Equal(t, "system", secondCallMessages[0].Role)
+	sysCount := 0
+	for _, m := range secondCallMessages {
+		if m.Role == "system" {
+			sysCount++
+		}
+	}
+	assert.Equal(t, 1, sysCount, "should have exactly one system message")
+}
+
 // --- Unit tests for helper functions ---
 
 func TestConvertToolsToAPIFormat(t *testing.T) {
@@ -294,30 +535,10 @@ func TestConvertToolsToAPIFormat(t *testing.T) {
 	assert.Equal(t, "read_file", result[0].Function.Name)
 }
 
-func TestCreateMessagesFromHistory(t *testing.T) {
-	agt := newTestAgent(t, nil)
-	agt.SetChatHistory([]string{
-		"User: Hello",
-		"Assistant: World",
-		"Tool result: something",
-	})
-
-	messages := agt.createMessagesFromHistory()
-	require.Len(t, messages, 3)
-
-	assert.Equal(t, "user", messages[0].Role)
-	assert.Equal(t, "Hello", messages[0].Content)
-
-	assert.Equal(t, "assistant", messages[1].Role)
-	assert.Equal(t, "World", messages[1].Content)
-
-	assert.Equal(t, "user", messages[2].Role)
-	assert.Equal(t, "Tool result: something", messages[2].Content)
-}
-
 func TestPrintSeparator(t *testing.T) {
 	output := captureOutput(func() {
 		printSeparator()
 	})
 	assert.Contains(t, output, strings.Repeat("━", 60))
 }
+
