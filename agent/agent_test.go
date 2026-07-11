@@ -109,6 +109,7 @@ func TestHandleSlashCommands_Compact_EmptyHistory(t *testing.T) {
 func TestHandleSlashCommands_Compact_Success(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	agt := newTestAgent(t, mockLLM)
+	agt.hasChecklist = true
 
 	agt.SetChatHistory([]string{
 		"User: Hello",
@@ -142,6 +143,7 @@ func TestHandleSlashCommands_Compact_Success(t *testing.T) {
 func TestHandleSlashCommands_Compact_LLMError(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	agt := newTestAgent(t, mockLLM)
+	agt.hasChecklist = true
 
 	agt.SetChatHistory([]string{
 		"User: Hello",
@@ -177,6 +179,7 @@ func TestHandleSlashCommands_UnknownCommand(t *testing.T) {
 func TestAgenticLoop_NoToolCalls(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	agt := newTestAgent(t, mockLLM)
+	agt.hasChecklist = true
 
 	mockLLM.EXPECT().
 		Chat(mock.Anything, mock.Anything).
@@ -206,6 +209,7 @@ func TestAgenticLoop_NoToolCalls(t *testing.T) {
 func TestAgenticLoop_ToolCallThenResponse(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	agt := newTestAgent(t, mockLLM)
+	agt.hasChecklist = true
 
 	// First call: model wants to call a tool
 	mockLLM.EXPECT().
@@ -256,6 +260,7 @@ func TestAgenticLoop_ToolCallThenResponse(t *testing.T) {
 func TestAgenticLoop_LLMError(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	agt := newTestAgent(t, mockLLM)
+	agt.hasChecklist = true
 
 	mockLLM.EXPECT().
 		Chat(mock.Anything, mock.Anything).
@@ -309,11 +314,12 @@ func TestCreateMessagesFromHistory_NoSkills(t *testing.T) {
 	})
 
 	messages := agt.createMessagesFromHistory()
-	require.Len(t, messages, 2)
-	// No system message since there are no skills
-	for _, m := range messages {
-		assert.NotEqual(t, "system", m.Role)
-	}
+	// Parent agents always get a checklist system prompt even without skills
+	require.Len(t, messages, 3)
+	assert.Equal(t, "system", messages[0].Role)
+	content, ok := messages[0].Content.(string)
+	require.True(t, ok)
+	assert.Contains(t, content, "checklist")
 }
 
 func TestCreateMessagesFromHistory_SkillsInjectedOnce(t *testing.T) {
@@ -410,6 +416,7 @@ func TestCreateMessagesFromHistory_MultipleSkills(t *testing.T) {
 func TestAgenticLoop_WithSkills_InjectInPrompt(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	agt := newTestAgent(t, mockLLM)
+	agt.hasChecklist = true
 	agt.SetSkills([]skills.Skill{
 		{Name: "write-a-poem", Description: "How to write a poem", Instructions: "Use old english\nBe humorous"},
 	})
@@ -468,6 +475,8 @@ func TestAgenticLoop_WithSkills_InjectInPrompt(t *testing.T) {
 func TestAgenticLoop_WithSkills_OnlyOneSystemMessage(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	agt := newTestAgent(t, mockLLM)
+	agt.hasChecklist = true
+	agt.hasChecklist = true // bypass checklist enforcement
 	agt.SetSkills([]skills.Skill{
 		{Name: "test-skill", Description: "Test", Instructions: "Do test"},
 	})
@@ -555,4 +564,185 @@ func TestPrintSeparator(t *testing.T) {
 		printSeparator()
 	})
 	assert.Contains(t, output, strings.Repeat("━", 60))
+}
+
+// --- Subagent tests ---
+
+func TestSubagent_GetsSubagentSystemPrompt(t *testing.T) {
+	mockLLM := mocks.NewClient(t)
+	logPath := filepath.Join(t.TempDir(), "test.log")
+	log, err := logger.NewLogger(logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { log.Close() })
+
+	allowlist := make(map[string]interface{})
+	sub := &Agent{
+		ID:            "sub-test-1",
+		isSubagent:    true,
+		printPrefix:   "  [sub-test-1] ",
+		llmClient:     mockLLM,
+		toolManager:   tools.NewDefaultToolManager(),
+		logger:        log,
+		chatHistory:   make([]string, 0),
+		toolAllowlist: &allowlist,
+		skills:        make([]skills.Skill, 0),
+	}
+
+	sub.SetChatHistory([]string{"User: do something"})
+
+	messages := sub.createMessagesFromHistory()
+	require.GreaterOrEqual(t, len(messages), 2)
+	assert.Equal(t, "system", messages[0].Role)
+	content, ok := messages[0].Content.(string)
+	require.True(t, ok)
+	assert.Contains(t, content, "focused subagent")
+	assert.Contains(t, content, "Do not create checklists")
+}
+
+func TestSubagent_ReturnsResult(t *testing.T) {
+	mockLLM := mocks.NewClient(t)
+	logPath := filepath.Join(t.TempDir(), "test.log")
+	log, err := logger.NewLogger(logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { log.Close() })
+
+	allowlist := make(map[string]interface{})
+	sub := &Agent{
+		ID:            "sub-task-1",
+		isSubagent:    true,
+		printPrefix:   "  [sub-task-1] ",
+		llmClient:     mockLLM,
+		toolManager:   tools.NewDefaultToolManager(),
+		logger:        log,
+		chatHistory:   make([]string, 0),
+		toolAllowlist: &allowlist,
+		skills:        make([]skills.Skill, 0),
+	}
+
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Return(&llm.ChatResponse{
+			Choices: []llm.Choice{
+				{
+					FinishReason: "stop",
+					Message: llm.Message{
+						Content: "I completed the task successfully",
+					},
+				},
+			},
+		}, nil).
+		Once()
+
+	var result string
+	captureOutput(func() {
+		result = sub.AgenticLoop("create a file", nil)
+	})
+	assert.Equal(t, "I completed the task successfully", result)
+}
+
+func TestAgenticLoop_ChecklistFlow(t *testing.T) {
+	mockLLM := mocks.NewClient(t)
+	agt := newTestAgent(t, mockLLM)
+
+	checklistArgs := `{"items": [{"id": "step-1", "description": "Create the CSV", "seed_context": "header: name,age"}, {"id": "step-2", "description": "Write the report", "seed_context": "summarize the data"}]}`
+
+	// First call: parent agent gets checklist response
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Return(&llm.ChatResponse{
+			Choices: []llm.Choice{
+				{
+					FinishReason: "tool_calls",
+					Message: llm.Message{
+						ToolCalls: []llm.ToolCall{
+							{
+								ID: "call-1",
+								Function: llm.ToolCallFunction{
+									Name:      "create_checklist",
+									Arguments: checklistArgs,
+								},
+							},
+						},
+					},
+				},
+			},
+		}, nil).
+		Once()
+
+	// Second call: subagent 1 completes
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Return(&llm.ChatResponse{
+			Choices: []llm.Choice{
+				{
+					FinishReason: "stop",
+					Message:      llm.Message{Content: "CSV created with headers name,age"},
+				},
+			},
+		}, nil).
+		Once()
+
+	// Third call: subagent 2 completes
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Return(&llm.ChatResponse{
+			Choices: []llm.Choice{
+				{
+					FinishReason: "stop",
+					Message:      llm.Message{Content: "Report written summarizing 10 records"},
+				},
+			},
+		}, nil).
+		Once()
+
+	// Fourth call: synthesis
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Return(&llm.ChatResponse{
+			Choices: []llm.Choice{
+				{
+					FinishReason: "stop",
+					Message:      llm.Message{Content: "All tasks completed: CSV created and report written."},
+				},
+			},
+		}, nil).
+		Once()
+
+	var result string
+	output := captureOutput(func() {
+		result = agt.AgenticLoop("create csv and report", nil)
+	})
+
+	assert.Contains(t, output, "Checklist detected")
+	assert.Contains(t, output, "Spawning subagent")
+	assert.Equal(t, "All tasks completed: CSV created and report written.", result)
+}
+
+func TestSharedToolAllowlist(t *testing.T) {
+	allowlist := make(map[string]interface{})
+	allowlist["bash"+"cmd=ls"] = nil
+
+	logPath := filepath.Join(t.TempDir(), "test.log")
+	log, err := logger.NewLogger(logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { log.Close() })
+
+	parent := &Agent{
+		ID:            "root",
+		toolAllowlist: &allowlist,
+		logger:        log,
+	}
+	sub := &Agent{
+		ID:            "sub-1",
+		isSubagent:    true,
+		toolAllowlist: parent.toolAllowlist, // shared
+		logger:        log,
+	}
+
+	// Both should see the same allowlist
+	assert.Equal(t, len(*parent.toolAllowlist), len(*sub.toolAllowlist))
+
+	// Add through sub, parent should see it
+	(*sub.toolAllowlist)["read_file"+"f=test.txt"] = nil
+	assert.Contains(t, *parent.toolAllowlist, "read_file"+"f=test.txt")
 }
