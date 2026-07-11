@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"ai-harness/llm"
 	"gopkg.in/yaml.v3"
 )
 
@@ -109,20 +110,50 @@ func ToSystemPrompt(skills []Skill) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("You have the following skills available. Use them when the situation is appropriate:\n\n")
+	b.WriteString("You have the following skills available as tools. If a skill is relevant to the user's request, call the skill's tool to receive the full instructions. Follow those instructions carefully.\n\n")
 
 	for i, s := range skills {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(fmt.Sprintf("### Skill: %s\n", s.Name))
-		if s.Description != "" {
-			b.WriteString(fmt.Sprintf("Description: %s\n", s.Description))
-		}
-		b.WriteString(fmt.Sprintf("Instructions:\n%s\n", s.Instructions))
+		b.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, s.Description))
 	}
 
-	b.WriteString("\nIf a skill's instructions are relevant to the user's request, follow those instructions carefully.\n")
-
 	return b.String()
+}
+
+// ToToolDefinitions converts skills into LLM tool definitions so the LLM
+// can request skill instructions via a standard tool call.
+func ToToolDefinitions(skills []Skill) []llm.ToolDefinition {
+	defs := make([]llm.ToolDefinition, 0, len(skills))
+	for _, s := range skills {
+		defs = append(defs, llm.ToolDefinition{
+			Type: "function",
+			Function: llm.ToolFunction{
+				Name:        s.Name,
+				Description: s.Description,
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+		})
+	}
+	return defs
+}
+
+// FindSkillByName looks up a skill by name (case-insensitive) and returns a copy.
+func FindSkillByName(skills []Skill, name string) *Skill {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, s := range skills {
+		if strings.ToLower(s.Name) == name {
+			return &s
+		}
+	}
+	return nil
+}
+
+// IsSkillTool returns true if the given tool name matches a loaded skill.
+func IsSkillTool(toolName string, skills []Skill) bool {
+	return FindSkillByName(skills, toolName) != nil
 }

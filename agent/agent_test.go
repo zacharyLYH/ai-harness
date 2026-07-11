@@ -402,7 +402,7 @@ func TestCreateMessagesFromHistory_MultipleSkills(t *testing.T) {
 	assert.Contains(t, sysContent, "First skill")
 	assert.Contains(t, sysContent, "skill-two")
 	assert.Contains(t, sysContent, "Second skill")
-	assert.Contains(t, sysContent, "follow those instructions carefully")
+	assert.Contains(t, sysContent, "call the skill's tool")
 }
 
 // --- AgenticLoop with skills integration test ---
@@ -415,11 +415,14 @@ func TestAgenticLoop_WithSkills_InjectInPrompt(t *testing.T) {
 	})
 
 	var capturedMessages []llm.Message
+	var capturedTools []llm.ToolDefinition
 	mockLLM.EXPECT().
 		Chat(mock.Anything, mock.Anything).
 		Run(func(messages []llm.Message, tools []llm.ToolDefinition) {
 			capturedMessages = make([]llm.Message, len(messages))
 			copy(capturedMessages, messages)
+			capturedTools = make([]llm.ToolDefinition, len(tools))
+			copy(capturedTools, tools)
 		}).
 		Return(&llm.ChatResponse{
 			Choices: []llm.Choice{
@@ -438,7 +441,7 @@ func TestAgenticLoop_WithSkills_InjectInPrompt(t *testing.T) {
 	})
 	assert.Contains(t, output, "Here's a poem for you!")
 
-	// Verify the skill was included in the system message
+	// Verify the skill was included in the system message (name + description only)
 	require.GreaterOrEqual(t, len(capturedMessages), 2)
 	sysMsg := capturedMessages[0]
 	assert.Equal(t, "system", sysMsg.Role)
@@ -446,8 +449,20 @@ func TestAgenticLoop_WithSkills_InjectInPrompt(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, content, "write-a-poem")
 	assert.Contains(t, content, "How to write a poem")
-	assert.Contains(t, content, "Use old english")
-	assert.Contains(t, content, "Be humorous")
+	// Instructions should NOT be in the system prompt anymore
+	assert.NotContains(t, content, "Use old english")
+	assert.NotContains(t, content, "Be humorous")
+
+	// Verify the skill was registered as a tool definition
+	found := false
+	for _, td := range capturedTools {
+		if td.Function.Name == "write-a-poem" {
+			found = true
+			assert.Equal(t, "How to write a poem", td.Function.Description)
+			break
+		}
+	}
+	assert.True(t, found, "skill should be registered as a tool definition")
 }
 
 func TestAgenticLoop_WithSkills_OnlyOneSystemMessage(t *testing.T) {

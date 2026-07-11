@@ -68,6 +68,8 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) {
 	a.mu.Unlock()
 
 	apiTools := convertToolsToAPIFormat(tools)
+	// Append skill tool definitions so the LLM can request skill instructions via tool calls
+	apiTools = append(apiTools, skills.ToToolDefinitions(a.skills)...)
 
 	messages := a.createMessagesFromHistory()
 
@@ -107,6 +109,22 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) {
 
 		if response.Choices[0].FinishReason == "tool_calls" && len(assistantMessage.ToolCalls) > 0 {
 			toolCall := assistantMessage.ToolCalls[0]
+
+			// Intercept skill tool calls — return the full instructions as the tool result
+			if skill := skills.FindSkillByName(a.skills, toolCall.Function.Name); skill != nil {
+				fmt.Printf("\n  ⚙ Loading skill: %s\n", skill.Name)
+				a.mu.Lock()
+				a.chatHistory = append(a.chatHistory, fmt.Sprintf("System Skill Context: %s", skill.Instructions))
+				a.mu.Unlock()
+
+				messages = append(messages, assistantMessage)
+				messages = append(messages, llm.Message{
+					Role:       "tool",
+					Content:    skill.Instructions,
+					ToolCallID: toolCall.ID,
+				})
+				continue
+			}
 
 			if !a.isToolAllowed(toolCall.Function.Name, tools) {
 				deniedMsg := fmt.Sprintf("Tool '%s' was not allowed by the user. Do not use this tool again unless the user explicitly asks you to.", toolCall.Function.Name)
