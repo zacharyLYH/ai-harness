@@ -1,15 +1,12 @@
-Agents need tools to interact with your machine. Instead of giving it unrestricted bash access, we will be creating scoped out capabilities to our agents. This is a directory of tools that this agent will be able to use.
+# AI Harness Tools
 
-Ideally, every time we add a tool here, we shouldn't need to change code anywhere else so that python tools that end up here are always self documenting. Since we want to enable self discovery of all tools, the structure of each file is very important.
+Agents need tools to interact with your machine. Instead of giving it unrestricted bash access, we create scoped capabilities for our agents. This directory contains the tools the agent can use.
 
-# Structure
-We will write metadata about the file as a JSON blob at the top of the function as multi line comments. Then below it the actual function itself. 
+## Structure
 
-> At runtime, the code will parse all tools in this directory, extract metadata on its own and use them inside prompts.
+Each tool is a Python file with JSON metadata at the top (inside triple-quoted comments), followed by the function implementation.
 
-```
-NameOfToolNoSpaces.py
-
+```python
 """
 {
     "Name": "NameOfToolNoSpaces",
@@ -18,7 +15,7 @@ NameOfToolNoSpaces.py
         "Properties": [
             {
                 "param1": {
-                    "type": "string, int, bool, etc",
+                    "type": "string",
                     "description": "description of this param1"
                 }
             }
@@ -31,5 +28,13 @@ def NameOfToolNoSpaces(param1: type):
     # function body
 ```
 
-# Safety
-For safety purposes, we will be constraining the tool execution to the `/llm_directory` directory - all read, write files happen in here. We will do this by **hard coding** into the tools the directory that the llm can work in.
+## Safety
+
+Every tool requires user permission before execution. The permission system uses a `(toolName, directory)` pair:
+
+- Filesystem tools (read_file, write_file, list_file, etc.) accept a `directory` parameter.
+- When the LLM calls a tool, the agent asks for permission: "Tool 'read_file' in directory '/path' wants to run. Allow? (y/N)"
+- Once approved, the `(toolName, directory)` pair is cached for the session. Subsequent calls to the same tool in the same directory are auto-approved.
+- Web tools (curl_web, duckduckgo_search) have no directory parameter — permission is granted per tool name only.
+
+This means the agent can operate in any directory, but only after you explicitly grant permission for each tool+directory combination.

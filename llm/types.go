@@ -2,11 +2,10 @@ package llm
 
 // Tool definition for our system
 type Tool struct {
-	ToolName        string
-	Description     string
-	PathToTool      string
-	Params          ToolParams
-	NeedUserConsent bool
+	ToolName    string
+	Description string
+	PathToTool  string
+	Params      ToolParams
 }
 
 type ToolParams struct {

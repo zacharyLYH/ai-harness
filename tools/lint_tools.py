@@ -197,21 +197,11 @@ def check_file_structure(filepath: str) -> Dict[str, Any]:
         results['metadata'] = metadata
         
         # Validate metadata structure
-        required_fields = ['Name', 'Description', 'NeedUserConsent', 'Params']
+        required_fields = ['Name', 'Description', 'Params']
         
         for field in required_fields:
             if field not in metadata:
                 results['errors'].append(f"Metadata missing required field: {field}")
-        
-        # Validate NeedUserConsent is a boolean
-        if 'NeedUserConsent' in metadata:
-            if not isinstance(metadata['NeedUserConsent'], bool):
-                results['errors'].append(
-                    f"Metadata field 'NeedUserConsent' must be a boolean (true/false), "
-                    f"got {type(metadata['NeedUserConsent']).__name__}"
-                )
-            else:
-                results['successes'].append(f"NeedUserConsent is set to {metadata['NeedUserConsent']}")
         
         if not results['errors']:
             results['metadata_valid'] = True
@@ -229,23 +219,17 @@ def check_file_structure(filepath: str) -> Dict[str, Any]:
     else:
         results['errors'].append("No valid metadata found. Expected JSON metadata in triple-quoted comments at top of file")
     
-    # Check 3: Look for directory constraint
-    llm_dir_patterns = [
-        r'/llm_directory',
-        r'llm_directory',
-        r'os\.chdir.*llm',
-        r'os\.path\.join.*llm'
-    ]
-    
-    for pattern in llm_dir_patterns:
-        if re.search(pattern, content, re.IGNORECASE):
-            results['has_directory_constraint'] = True
-            break
-    
-    if results['has_directory_constraint']:
-        results['successes'].append("File appears to constrain operations to /llm_directory")
-    else:
-        results['warnings'].append("File may not constrain operations to /llm_directory")
+    # Check 3: Look for directory parameter in metadata
+    if metadata and 'Params' in metadata:
+        params = metadata['Params']
+        if 'Properties' in params:
+            for prop in params['Properties']:
+                if isinstance(prop, dict) and 'directory' in prop:
+                    results['has_directory_constraint'] = True
+                    results['successes'].append("Tool accepts a 'directory' parameter for scoped access")
+                    break
+            if not results.get('has_directory_constraint'):
+                results['warnings'].append("Tool may not accept a 'directory' parameter")
     
     # Check 4: Check for docstring format - look for triple quotes anywhere in first 10 lines
     lines = content.split('\n')

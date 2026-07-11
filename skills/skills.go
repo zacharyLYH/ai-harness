@@ -110,7 +110,7 @@ func ToSystemPrompt(skills []Skill) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("You have the following skills available as tools. If a skill is relevant to the user's request, call the skill's tool to receive the full instructions. Follow those instructions carefully.\n\n")
+	b.WriteString("You have the following skills available as tools. If a skill is relevant to the user's request, call the skill's tool to receive the full instructions. Follow those instructions carefully. SKILLS SHOULD USE TOOLS TO PERFORM EXTERNAL SIDE EFFECTS - NEVER PERFORM SIDE EFFECTS FROM SKILLS!!!!!\n\n")
 
 	for i, s := range skills {
 		if i > 0 {

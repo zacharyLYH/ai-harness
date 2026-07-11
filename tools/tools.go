@@ -204,17 +204,11 @@ func parseToolMetadata(content string, filePath string) (llm.Tool, error) {
 		return llm.Tool{}, fmt.Errorf("failed to convert params in %s: %v", filePath, err)
 	}
 
-	needUserConsent := false
-	if consentVal, ok := metadata["NeedUserConsent"].(bool); ok {
-		needUserConsent = consentVal
-	}
-
 	return llm.Tool{
-		ToolName:        toolName,
-		Description:     description,
-		PathToTool:      filePath,
-		Params:          toolParams,
-		NeedUserConsent: needUserConsent,
+		ToolName:    toolName,
+		Description: description,
+		PathToTool:  filePath,
+		Params:      toolParams,
 	}, nil
 }
 

@@ -53,8 +53,8 @@ func main() {
 
 	appLogger.SystemLog("Loaded %d tools: %v", len(toolList), tools.GetToolNames(toolList))
 
-	// Load all skills from the llm_directory/skills directory
-	loadedSkills, err := skills.LoadAllSkills("llm_directory/skills")
+	// Load all skills from the skills/skills directory
+	loadedSkills, err := skills.LoadAllSkills("skills/skills")
 	if err != nil {
 		appLogger.SystemLog("Warning: could not load skills: %v", err)
 		loadedSkills = []skills.Skill{}

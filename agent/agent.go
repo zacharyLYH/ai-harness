@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -20,7 +21,7 @@ type Agent struct {
 	toolManager   *tools.DefaultToolManager
 	logger        *logger.Logger
 	chatHistory   []string
-	toolAllowlist map[string]bool
+	toolAllowlist map[string]interface{} // toolAllowlist[toolName+argsSummary]
 	skills        []skills.Skill
 	mu            sync.Mutex
 }
@@ -31,7 +32,7 @@ func New(llmClient llm.Client, toolManager *tools.DefaultToolManager, logger *lo
 		toolManager:   toolManager,
 		logger:        logger,
 		chatHistory:   make([]string, 0),
-		toolAllowlist: make(map[string]bool),
+		toolAllowlist: make(map[string]interface{}),
 		skills:        make([]skills.Skill, 0),
 	}
 }
@@ -126,7 +127,7 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) {
 				continue
 			}
 
-			if !a.isToolAllowed(toolCall.Function.Name, tools) {
+			if !a.isToolAllowed(toolCall.Function.Name, toolCall.Function.Arguments) {
 				deniedMsg := fmt.Sprintf("Tool '%s' was not allowed by the user. Do not use this tool again unless the user explicitly asks you to.", toolCall.Function.Name)
 				a.mu.Lock()
 				a.chatHistory = append(a.chatHistory, fmt.Sprintf("Tool %s denied by user", toolCall.Function.Name))
@@ -178,6 +179,7 @@ func (a *Agent) HandleSlashCommands(cmd string) {
 		fmt.Println("  /compact  - Compress chat history via LLM")
 		fmt.Println("  /help     - Show this help")
 		fmt.Println("  /skills   - Show loaded skills")
+		fmt.Println("  /perms    - Show approved tool permissions")
 	case "/context":
 		a.mu.Lock()
 		totalWords := 0
@@ -194,6 +196,21 @@ func (a *Agent) HandleSlashCommands(cmd string) {
 			fmt.Printf("  Loaded skills (%d):\n", len(a.skills))
 			for _, s := range a.skills {
 				fmt.Printf("    - %s: %s\n", s.Name, s.Description)
+			}
+		}
+		a.mu.Unlock()
+	case "/perms":
+		a.mu.Lock()
+		if len(a.toolAllowlist) == 0 {
+			fmt.Println("  No permissions granted yet.")
+		} else {
+			fmt.Println("  Approved permissions:")
+			for toolName, argsSummary := range a.toolAllowlist {
+				if argsSummary != "" {
+					fmt.Printf("    - %s (%s)\n", toolName, argsSummary)
+				} else {
+					fmt.Printf("    - %s\n", toolName)
+				}
 			}
 		}
 		a.mu.Unlock()
@@ -248,35 +265,94 @@ func (a *Agent) compactHistory(text string) (string, error) {
 }
 
 // isToolAllowed checks if a tool call is allowed by the user.
-func (a *Agent) isToolAllowed(toolName string, tools []llm.Tool) bool {
-	var tool *llm.Tool
-	for _, t := range tools {
-		if t.ToolName == toolName {
-			tool = &t
-			break
+// toolAllowlist is a map[toolName]argsSummary — once approved, the tool is cached.
+// For the "bash" tool, we ask the LLM to explain the command before prompting the user.
+func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
+	var args map[string]interface{}
+	json.Unmarshal([]byte(argumentsJSON), &args)
+
+	// Build a human-readable summary of the arguments
+	parts := []string{}
+	for k, v := range args {
+		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
+	}
+
+	argsSummary := strings.Join(parts, ", ")
+
+	a.mu.Lock()
+	_, toolExists := a.toolAllowlist[toolName+argsSummary]
+	if toolExists {
+		a.mu.Unlock()
+		return true
+	}
+	a.mu.Unlock()
+
+	// For bash, use the LLM-provided description, falling back to asking the LLM to explain
+	if toolName == "bash" {
+		command := ""
+		description := ""
+		if args != nil {
+			if c, ok := args["command"].(string); ok {
+				command = c
+			}
+			if d, ok := args["description"].(string); ok {
+				description = d
+			}
 		}
-	}
-	if tool == nil {
-		return false
+
+		explanation := description
+		if explanation == "" {
+			var err error
+			explanation, err = a.askForExplanation(command)
+			if err != nil {
+				explanation = fmt.Sprintf("Executes: %s", command)
+			}
+		}
+
+		fmt.Printf("\nTool '%s' wants to run\n", toolName)
+		fmt.Printf("  %s\n", explanation)
+		fmt.Print("Allow? (y/N): ")
+	} else {
+		fmt.Printf("\nTool '%s' wants to run with args: %s\nAllow? (y/N): ", toolName, argsSummary)
 	}
 
-	if !tool.NeedUserConsent {
-		return true
-	}
-
-	if a.toolAllowlist[toolName] {
-		return true
-	}
-
-	fmt.Printf("\nTool '%s' wants to run. Allow? (y/N): ", toolName)
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
 	answer := strings.TrimSpace(scanner.Text())
-	if strings.ToLower(answer) == "y" {
-		a.toolAllowlist[toolName] = true
-		return true
+	if strings.ToLower(answer) != "y" {
+		return false
 	}
-	return false
+
+	// Cache the permission
+	a.mu.Lock()
+	a.toolAllowlist[toolName+argsSummary] = nil
+	a.mu.Unlock()
+	return true
+}
+
+// askForExplanation asks the LLM to explain what a bash command does in plain english.
+func (a *Agent) askForExplanation(command string) (string, error) {
+	prompt := fmt.Sprintf(
+		"Explain the following bash command in one short, succinct sentence. "+
+			"Do not leave out any important detail like flags, arguments, or side effects.\n\nCommand: %s", command)
+
+	messages := []llm.Message{
+		{Role: "user", Content: prompt},
+	}
+	response, err := a.llmClient.Chat(messages, nil)
+	if err != nil {
+		return "", err
+	}
+	if len(response.Choices) == 0 {
+		return "", fmt.Errorf("no response from LLM")
+	}
+	content := response.Choices[0].Message.Content
+	switch v := content.(type) {
+	case string:
+		return strings.TrimSpace(v), nil
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", v)), nil
+	}
 }
 
 // createMessagesFromHistory converts the chat history to LLM messages,

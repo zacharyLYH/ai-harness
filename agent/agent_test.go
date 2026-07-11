@@ -556,4 +556,3 @@ func TestPrintSeparator(t *testing.T) {
 	})
 	assert.Contains(t, output, strings.Repeat("━", 60))
 }
-
