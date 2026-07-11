@@ -536,7 +536,8 @@ func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
 	a.mu.Unlock()
 
 	// For bash, use the LLM-provided description, falling back to asking the LLM to explain
-	if toolName == "bash" {
+	switch toolName {
+	case "bash":
 		command := ""
 		description := ""
 		if args != nil {
@@ -559,17 +560,17 @@ func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
 
 		fmt.Printf("\nTool '%s' wants to run\n", toolName)
 		fmt.Printf("  %s\n", explanation)
-		fmt.Print("Allow? (y/N): ")
-	} else if toolName == "curl_web" {
+		fmt.Print("Allow? (y/N. default yes): ")
+	case "curl_web":
 		// no-op
-	} else {
+	default:
 		fmt.Printf("\nTool '%s' wants to run with args: %s\nAllow? (y/N): ", toolName, argsSummary)
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
 	answer := strings.TrimSpace(scanner.Text())
-	if strings.ToLower(answer) != "n" {
+	if strings.ToLower(answer) == "n" {
 		return false
 	}
 

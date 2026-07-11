@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"ai-harness/skills"
 	"ai-harness/tools"
 
+	"github.com/chzyer/readline"
 	"github.com/joho/godotenv"
 )
 
@@ -71,23 +71,36 @@ func main() {
 	fmt.Println("Welcome to ai-harness project — type your prompt or /help")
 	printSeparator()
 
-	for {
-		fmt.Print("\n  > ")
-		scanner := bufio.NewScanner(os.Stdin)
-		if scanner.Scan() {
-			prompt := strings.TrimSpace(scanner.Text())
-			if prompt == "" {
-				continue
-			}
-
-			if strings.HasPrefix(prompt, "/") {
-				agt.HandleSlashCommands(prompt)
-				continue
-			}
-
-			agt.AgenticLoop(prompt, toolList)
-		}
+	rl, err := readline.New("  > ")
+	if err != nil {
+		fmt.Println("Error initializing input:", err)
+		os.Exit(1)
 	}
+	defer rl.Close()
+
+	for {
+		line, err := rl.Readline()
+		if err != nil {
+			if err == readline.ErrInterrupt {
+				break
+			}
+			fmt.Println("Error reading input:", err)
+			os.Exit(1)
+		}
+
+		prompt := strings.TrimSpace(line)
+		if prompt == "" {
+			continue
+		}
+
+		if strings.HasPrefix(prompt, "/") {
+			agt.HandleSlashCommands(prompt)
+			continue
+		}
+
+		agt.AgenticLoop(prompt, toolList)
+	}
+	fmt.Println("bye")
 }
 
 func printSeparator() {
