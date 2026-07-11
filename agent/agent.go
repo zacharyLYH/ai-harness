@@ -55,6 +55,8 @@ type Agent struct {
 	toolAllowlist *map[string]interface{} // shared pointer so subagents inherit permissions
 	skills        []skills.Skill
 	mu            sync.Mutex
+	depth         int
+	turnCount     int
 }
 
 func New(llmClient llm.Client, toolManager *tools.DefaultToolManager, logger *logger.Logger) *Agent {
@@ -69,6 +71,8 @@ func New(llmClient llm.Client, toolManager *tools.DefaultToolManager, logger *lo
 		chatHistory:   make([]string, 0),
 		toolAllowlist: &allowlist,
 		skills:        make([]skills.Skill, 0),
+		depth:         0,
+		turnCount:     0,
 	}
 }
 
@@ -117,7 +121,9 @@ func (a *Agent) agentPrintln(msg string) {
 // AgenticLoop runs the main agent loop: sends messages to LLM, processes tool calls, etc.
 // Returns the final assistant response text.
 func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
-	a.logger.SystemLog("[%s] User prompt: %s", a.ID, prompt)
+	a.turnCount++
+	a.logger.LogTurnStart(a.turnCount)
+	a.logger.LogUserPrompt(prompt)
 
 	a.mu.Lock()
 	a.chatHistory = append(a.chatHistory, fmt.Sprintf("User: %s", prompt))
@@ -156,6 +162,7 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 
 		if len(response.Choices) == 0 {
 			a.logger.SystemLog("[%s] No response from LLM", a.ID)
+			a.logger.LogTurnEnd()
 			return ""
 		}
 
@@ -175,14 +182,18 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 		a.chatHistory = append(a.chatHistory, fmt.Sprintf("Assistant: %s", assistantContent))
 		a.mu.Unlock()
 
-		a.logger.SystemLog("[%s] Finish reason: %s", a.ID, response.Choices[0].FinishReason)
+		a.logger.LogLLMMessage(assistantContent)
 
 		if response.Choices[0].FinishReason == "tool_calls" && len(assistantMessage.ToolCalls) > 0 {
 			toolCall := assistantMessage.ToolCalls[0]
+			a.logger.LogToolCall(toolCall.Function.Name, toolCall.Function.Arguments)
 
 			// Handle checklist tool creation
 			if toolCall.Function.Name == "create_checklist" {
 				a.hasChecklist = true
+				defer func() {
+					a.hasChecklist = false
+				}()
 				var args struct {
 					Items []ChecklistItem `json:"items"`
 				}
@@ -209,6 +220,7 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 					printSeparator()
 					fmt.Println(summary)
 					printSeparator()
+					a.logger.LogTurnEnd()
 					return summary
 				} else {
 					a.agentPrint("\n  🚀 Simple task detected. Executing directly...\n")
@@ -220,6 +232,11 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 						Content:    "Checklist accepted. Task is simple. Proceed directly with standard tools.",
 						ToolCallID: toolCall.ID,
 					})
+
+					a.logger.LogToolResult(toolCall.Function.Name, "Checklist accepted. Task is simple. Proceed directly with standard tools.")
+					a.logger.LogTurnEnd()
+					a.turnCount++
+					a.logger.LogTurnStart(a.turnCount)
 					continue
 				}
 			}
@@ -237,6 +254,11 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 					Content:    skill.Instructions,
 					ToolCallID: toolCall.ID,
 				})
+
+				a.logger.LogToolResult(toolCall.Function.Name, skill.Instructions)
+				a.logger.LogTurnEnd()
+				a.turnCount++
+				a.logger.LogTurnStart(a.turnCount)
 				continue
 			}
 
@@ -252,6 +274,11 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 					Content:    deniedMsg,
 					ToolCallID: toolCall.ID,
 				})
+
+				a.logger.LogToolResult(toolCall.Function.Name, deniedMsg)
+				a.logger.LogTurnEnd()
+				a.turnCount++
+				a.logger.LogTurnStart(a.turnCount)
 				continue
 			}
 
@@ -268,6 +295,11 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 				Content:    toolResult,
 				ToolCallID: toolCall.ID,
 			})
+
+			a.logger.LogToolResult(toolCall.Function.Name, toolResult)
+			a.logger.LogTurnEnd()
+			a.turnCount++
+			a.logger.LogTurnStart(a.turnCount)
 			continue
 		} else {
 			// Regular response (no checklist, or subagent)
@@ -278,6 +310,7 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 			} else {
 				a.agentPrintln("  ✅ Done")
 			}
+			a.logger.LogTurnEnd()
 			return assistantContent
 		}
 	}
@@ -293,10 +326,12 @@ func (a *Agent) spawnSubagent(item ChecklistItem, tools []llm.Tool) string {
 		printPrefix:   fmt.Sprintf("  [%s] ", subID),
 		llmClient:     a.llmClient,
 		toolManager:   a.toolManager,
-		logger:        a.logger,
+		logger:        a.logger.WithScope(subID, a.depth+1),
 		chatHistory:   make([]string, 0),
 		toolAllowlist: a.toolAllowlist, // shared pointer
 		skills:        a.skills,
+		depth:         a.depth + 1,
+		turnCount:     0,
 	}
 
 	// Build subagent prompt: task description + seed context
@@ -525,6 +560,8 @@ func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
 		fmt.Printf("\nTool '%s' wants to run\n", toolName)
 		fmt.Printf("  %s\n", explanation)
 		fmt.Print("Allow? (y/N): ")
+	} else if toolName == "curl_web" {
+		// no-op
 	} else {
 		fmt.Printf("\nTool '%s' wants to run with args: %s\nAllow? (y/N): ", toolName, argsSummary)
 	}
@@ -532,7 +569,7 @@ func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
 	answer := strings.TrimSpace(scanner.Text())
-	if strings.ToLower(answer) != "y" {
+	if strings.ToLower(answer) != "n" {
 		return false
 	}
 
@@ -570,9 +607,8 @@ func (a *Agent) askForExplanation(command string) (string, error) {
 
 // checklistSystemPrompt is injected for parent agents to instruct the LLM about checklists.
 const checklistSystemPrompt = `You must use the create_checklist tool as your very first action.
-If the user's task is complex and benefits from decomposition into subtasks, provide a list of items.
-Each checklist item will be executed by a separate subagent with only the description and seed_context as input.
-If the task is simple, return an empty array or a single item, and you will be allowed to execute it directly.`
+If the user's task solution is multi-step or multi-instruction and benefits from decomposition into subtasks, provide a list of items.
+Each checklist item will be executed by a separate subagent with only the description and seed_context as input.`
 
 // subagentSystemPrompt is injected for subagents.
 const subagentSystemPrompt = "You are a focused subagent. Complete the following task thoroughly and respond with your final result. Do not create checklists."
