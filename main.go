@@ -6,10 +6,10 @@ import (
 
 	"ai-harness/agent"
 	"ai-harness/common/logger"
+	"ai-harness/common/tui"
 	"ai-harness/llm"
 	"ai-harness/skills"
 	"ai-harness/tools"
-	"ai-harness/tui"
 
 	"github.com/chzyer/readline"
 	"github.com/joho/godotenv"
@@ -63,8 +63,7 @@ func main() {
 	llmClient := llm.NewOpenRouterClient(appLogger)
 
 	// Create agent
-	agt := agent.New(llmClient, toolManager, appLogger)
-	agt.SetSkills(loadedSkills)
+	agt := agent.New(llmClient, toolManager, appLogger, loadedSkills)
 
 	tui.Print("Welcome to ai-harness project — type your prompt or /help")
 	tui.Sep()

@@ -10,6 +10,33 @@ import (
 	"ai-harness/llm"
 )
 
+var ChecklistToolDefinition = llm.ToolDefinition{
+	Type: "function",
+	Function: llm.ToolFunction{
+		Name:        "create_checklist",
+		Description: "Mandatory first step to plan the execution of the user's request. Create a checklist of subtasks. If the task is simple and doesn't require subtasks, return an empty array or an array with 1 item.",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"items": map[string]interface{}{
+					"type":        "array",
+					"description": "List of tasks to complete",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"id":           map[string]interface{}{"type": "string", "description": "Unique ID for the task"},
+							"description":  map[string]interface{}{"type": "string", "description": "What to do"},
+							"seed_context": map[string]interface{}{"type": "string", "description": "Starter code or context"},
+						},
+						"required": []string{"id", "description", "seed_context"},
+					},
+				},
+			},
+			"required": []string{"items"},
+		},
+	},
+}
+
 // LintRunner runs linting on tool files.
 type LintRunner interface {
 	RunLint() bool

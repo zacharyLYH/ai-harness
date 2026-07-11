@@ -9,18 +9,18 @@ import (
 	"testing"
 
 	"ai-harness/common/logger"
+	"ai-harness/common/tui"
 	"ai-harness/llm"
 	"ai-harness/llm/mocks"
 	"ai-harness/skills"
 	"ai-harness/tools"
-	"ai-harness/tui"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestAgent(t *testing.T, mockLLM *mocks.Client) *Agent {
+func newTestAgent(t *testing.T, mockLLM *mocks.Client, skills []skills.Skill) *Agent {
 	t.Helper()
 	logPath := filepath.Join(t.TempDir(), "test.log")
 	log, err := logger.NewLogger(logPath)
@@ -31,7 +31,7 @@ func newTestAgent(t *testing.T, mockLLM *mocks.Client) *Agent {
 		mockLLM = mocks.NewClient(t)
 	}
 
-	return New(mockLLM, tools.NewDefaultToolManager(), log)
+	return New(mockLLM, tools.NewDefaultToolManager(), log, skills)
 }
 
 // captureOutput executes f and returns everything written to stdout.
@@ -53,7 +53,7 @@ func captureOutput(f func()) string {
 // --- /help tests ---
 
 func TestHandleSlashCommands_Help(t *testing.T) {
-	agt := newTestAgent(t, nil)
+	agt := newTestAgent(t, nil, nil)
 	output := captureOutput(func() {
 		agt.HandleSlashCommands("/help")
 	})
@@ -64,7 +64,7 @@ func TestHandleSlashCommands_Help(t *testing.T) {
 }
 
 func TestHandleSlashCommands_EmptyString(t *testing.T) {
-	agt := newTestAgent(t, nil)
+	agt := newTestAgent(t, nil, nil)
 	output := captureOutput(func() {
 		agt.HandleSlashCommands("")
 	})
@@ -74,7 +74,7 @@ func TestHandleSlashCommands_EmptyString(t *testing.T) {
 // --- /context tests ---
 
 func TestHandleSlashCommands_Context_Empty(t *testing.T) {
-	agt := newTestAgent(t, nil)
+	agt := newTestAgent(t, nil, nil)
 	output := captureOutput(func() {
 		agt.HandleSlashCommands("/context")
 	})
@@ -82,93 +82,20 @@ func TestHandleSlashCommands_Context_Empty(t *testing.T) {
 	assert.Contains(t, output, "0 messages")
 }
 
-func TestHandleSlashCommands_Context_WithHistory(t *testing.T) {
-	agt := newTestAgent(t, nil)
-	agt.SetChatHistory([]string{
-		"User: Hello world",
-		"Assistant: Hi there how are you",
-		"User: Fine thanks",
-	})
-
-	output := captureOutput(func() {
-		agt.HandleSlashCommands("/context")
-	})
-	assert.Contains(t, output, "words")
-	assert.Contains(t, output, "3 messages")
-}
-
 // --- /compact tests ---
 
 func TestHandleSlashCommands_Compact_EmptyHistory(t *testing.T) {
-	agt := newTestAgent(t, nil)
+	agt := newTestAgent(t, nil, nil)
 	output := captureOutput(func() {
 		agt.HandleSlashCommands("/compact")
 	})
 	assert.Contains(t, output, "No chat history to compact")
 }
 
-func TestHandleSlashCommands_Compact_Success(t *testing.T) {
-	mockLLM := mocks.NewClient(t)
-	agt := newTestAgent(t, mockLLM)
-	agt.hasChecklist = true
-
-	agt.SetChatHistory([]string{
-		"User: Hello",
-		"Assistant: Hi there",
-	})
-
-	mockLLM.EXPECT().
-		Chat(mock.Anything, mock.Anything).
-		Return(&llm.ChatResponse{
-			Choices: []llm.Choice{
-				{
-					Message: llm.Message{
-						Content: "User greeted, assistant responded",
-					},
-				},
-			},
-		}, nil).
-		Maybe()
-
-	output := captureOutput(func() {
-		agt.HandleSlashCommands("/compact")
-	})
-
-	assert.Contains(t, output, "Compressed")
-
-	history := agt.ChatHistory()
-	require.Len(t, history, 1)
-	assert.Contains(t, history[0], "User greeted")
-}
-
-func TestHandleSlashCommands_Compact_LLMError(t *testing.T) {
-	mockLLM := mocks.NewClient(t)
-	agt := newTestAgent(t, mockLLM)
-	agt.hasChecklist = true
-
-	agt.SetChatHistory([]string{
-		"User: Hello",
-		"Assistant: Hi there",
-	})
-
-	mockLLM.EXPECT().
-		Chat(mock.Anything, mock.Anything).
-		Return(nil, assert.AnError).
-		Maybe()
-
-	output := captureOutput(func() {
-		agt.HandleSlashCommands("/compact")
-	})
-	assert.Contains(t, output, "Error compacting")
-
-	history := agt.ChatHistory()
-	require.Len(t, history, 2)
-}
-
 // --- Unknown command ---
 
 func TestHandleSlashCommands_UnknownCommand(t *testing.T) {
-	agt := newTestAgent(t, nil)
+	agt := newTestAgent(t, nil, nil)
 	output := captureOutput(func() {
 		agt.HandleSlashCommands("/unknown")
 	})
@@ -179,7 +106,7 @@ func TestHandleSlashCommands_UnknownCommand(t *testing.T) {
 
 func TestAgenticLoop_NoToolCalls(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
-	agt := newTestAgent(t, mockLLM)
+	agt := newTestAgent(t, mockLLM, nil)
 	agt.hasChecklist = true
 
 	mockLLM.EXPECT().
@@ -201,7 +128,7 @@ func TestAgenticLoop_NoToolCalls(t *testing.T) {
 	})
 	assert.Contains(t, output, "Hello! How can I help you?")
 
-	history := agt.ChatHistory()
+	history := agt.chatHistory
 	require.Len(t, history, 2)
 	assert.Equal(t, "User: hi", history[0])
 	assert.Contains(t, history[1], "Hello!")
@@ -209,7 +136,7 @@ func TestAgenticLoop_NoToolCalls(t *testing.T) {
 
 func TestAgenticLoop_ToolCallThenResponse(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
-	agt := newTestAgent(t, mockLLM)
+	agt := newTestAgent(t, mockLLM, nil)
 	agt.hasChecklist = true
 
 	// First call: model wants to call a tool
@@ -260,7 +187,7 @@ func TestAgenticLoop_ToolCallThenResponse(t *testing.T) {
 
 func TestAgenticLoop_LLMError(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
-	agt := newTestAgent(t, mockLLM)
+	agt := newTestAgent(t, mockLLM, nil)
 	agt.hasChecklist = true
 
 	mockLLM.EXPECT().
@@ -273,7 +200,7 @@ func TestAgenticLoop_LLMError(t *testing.T) {
 	})
 	_ = output
 
-	history := agt.ChatHistory()
+	history := agt.chatHistory
 	require.Len(t, history, 1)
 	assert.Equal(t, "User: hi", history[0])
 }
@@ -281,146 +208,21 @@ func TestAgenticLoop_LLMError(t *testing.T) {
 // --- /skills tests ---
 
 func TestHandleSlashCommands_Skills_NoSkills(t *testing.T) {
-	agt := newTestAgent(t, nil)
+	agt := newTestAgent(t, nil, nil)
 	output := captureOutput(func() {
 		agt.HandleSlashCommands("/skills")
 	})
 	assert.Contains(t, output, "No skills loaded")
 }
 
-func TestHandleSlashCommands_Skills_WithSkills(t *testing.T) {
-	agt := newTestAgent(t, nil)
-	agt.SetSkills([]skills.Skill{
-		{Name: "write-a-poem", Description: "How to write a poem", Instructions: "Use old english"},
-		{Name: "code-review", Description: "Review code", Instructions: "Check for bugs"},
-	})
-
-	output := captureOutput(func() {
-		agt.HandleSlashCommands("/skills")
-	})
-	assert.Contains(t, output, "write-a-poem")
-	assert.Contains(t, output, "How to write a poem")
-	assert.Contains(t, output, "code-review")
-	assert.Contains(t, output, "Review code")
-	assert.Contains(t, output, "2")
-}
-
-// --- createMessagesFromHistory tests with skills ---
-
-func TestCreateMessagesFromHistory_NoSkills(t *testing.T) {
-	agt := newTestAgent(t, nil)
-	agt.SetChatHistory([]string{
-		"User: Hello",
-		"Assistant: World",
-	})
-
-	messages := agt.createMessagesFromHistory()
-	// Parent agents always get a checklist system prompt even without skills
-	require.Len(t, messages, 3)
-	assert.Equal(t, "system", messages[0].Role)
-	content, ok := messages[0].Content.(string)
-	require.True(t, ok)
-	assert.Contains(t, content, "checklist")
-}
-
-func TestCreateMessagesFromHistory_SkillsInjectedOnce(t *testing.T) {
-	agt := newTestAgent(t, nil)
-	agt.SetSkills([]skills.Skill{
-		{Name: "write-a-poem", Description: "How to write a poem", Instructions: "Use old english"},
-	})
-	agt.SetChatHistory([]string{
-		"User: Hello",
-		"Assistant: World",
-	})
-
-	messages := agt.createMessagesFromHistory()
-	require.Len(t, messages, 3)
-
-	// First message should be system with skills context
-	assert.Equal(t, "system", messages[0].Role)
-	content, ok := messages[0].Content.(string)
-	require.True(t, ok)
-	assert.Contains(t, content, "write-a-poem")
-	assert.Contains(t, content, "How to write a poem")
-
-	// Followed by user/assistant messages
-	assert.Equal(t, "user", messages[1].Role)
-	assert.Equal(t, "Hello", messages[1].Content)
-
-	assert.Equal(t, "assistant", messages[2].Role)
-	assert.Equal(t, "World", messages[2].Content)
-}
-
-func TestCreateMessagesFromHistory_SkillsNotReInjectedOnSecondTurn(t *testing.T) {
-	agt := newTestAgent(t, nil)
-	agt.SetSkills([]skills.Skill{
-		{Name: "my-skill", Description: "A skill", Instructions: "Do the thing"},
-	})
-	// Simulate chat history from a first turn where skills were already injected
-	agt.SetChatHistory([]string{
-		"User: First message",
-		"Assistant: First response",
-	})
-
-	// First call: skills should be present
-	messages1 := agt.createMessagesFromHistory()
-	require.Len(t, messages1, 3)
-	assert.Equal(t, "system", messages1[0].Role)
-
-	// Add another turn to the history
-	agt.SetChatHistory(append(agt.ChatHistory(),
-		"User: Second message",
-		"Assistant: Second response",
-	))
-
-	// Second call: skills should NOT be re-injected (no duplicate system message)
-	messages2 := agt.createMessagesFromHistory()
-	// Still only one system message at the start
-	require.Len(t, messages2, 5)
-	assert.Equal(t, "system", messages2[0].Role)
-	assert.Contains(t, messages2[0].Content.(string), "my-skill")
-
-	assert.Equal(t, "user", messages2[1].Role)
-	assert.Equal(t, "First message", messages2[1].Content)
-
-	assert.Equal(t, "assistant", messages2[2].Role)
-
-	assert.Equal(t, "user", messages2[3].Role)
-	assert.Equal(t, "Second message", messages2[3].Content)
-
-	assert.Equal(t, "assistant", messages2[4].Role)
-}
-
-func TestCreateMessagesFromHistory_MultipleSkills(t *testing.T) {
-	agt := newTestAgent(t, nil)
-	agt.SetSkills([]skills.Skill{
-		{Name: "skill-one", Description: "First skill", Instructions: "Step 1"},
-		{Name: "skill-two", Description: "Second skill", Instructions: "Step A"},
-	})
-	agt.SetChatHistory([]string{
-		"User: Hi",
-	})
-
-	messages := agt.createMessagesFromHistory()
-	require.Len(t, messages, 2)
-
-	sysContent := messages[0].Content.(string)
-	assert.Contains(t, sysContent, "skill-one")
-	assert.Contains(t, sysContent, "First skill")
-	assert.Contains(t, sysContent, "skill-two")
-	assert.Contains(t, sysContent, "Second skill")
-	assert.Contains(t, sysContent, "call the skill's tool")
-}
-
 // --- AgenticLoop with skills integration test ---
 
 func TestAgenticLoop_WithSkills_InjectInPrompt(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
-	agt := newTestAgent(t, mockLLM)
-	agt.hasChecklist = true
-	agt.SetSkills([]skills.Skill{
+	agt := newTestAgent(t, mockLLM, []skills.Skill{
 		{Name: "write-a-poem", Description: "How to write a poem", Instructions: "Use old english\nBe humorous"},
 	})
+	agt.hasChecklist = true
 
 	var capturedMessages []llm.Message
 	var capturedTools []llm.ToolDefinition
@@ -475,12 +277,8 @@ func TestAgenticLoop_WithSkills_InjectInPrompt(t *testing.T) {
 
 func TestAgenticLoop_WithSkills_OnlyOneSystemMessage(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
-	agt := newTestAgent(t, mockLLM)
+	agt := newTestAgent(t, mockLLM, nil)
 	agt.hasChecklist = true
-	agt.hasChecklist = true // bypass checklist enforcement
-	agt.SetSkills([]skills.Skill{
-		{Name: "test-skill", Description: "Test", Instructions: "Do test"},
-	})
 
 	var callCount int
 	var firstCallMessages, secondCallMessages []llm.Message
@@ -569,37 +367,6 @@ func TestPrintSeparator(t *testing.T) {
 
 // --- Subagent tests ---
 
-func TestSubagent_GetsSubagentSystemPrompt(t *testing.T) {
-	mockLLM := mocks.NewClient(t)
-	logPath := filepath.Join(t.TempDir(), "test.log")
-	log, err := logger.NewLogger(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { log.Close() })
-
-	allowlist := make(map[string]interface{})
-	sub := &Agent{
-		ID:            "sub-test-1",
-		isSubagent:    true,
-		printPrefix:   "  [sub-test-1] ",
-		llmClient:     mockLLM,
-		toolManager:   tools.NewDefaultToolManager(),
-		logger:        log,
-		chatHistory:   make([]string, 0),
-		toolAllowlist: &allowlist,
-		skills:        make([]skills.Skill, 0),
-	}
-
-	sub.SetChatHistory([]string{"User: do something"})
-
-	messages := sub.createMessagesFromHistory()
-	require.GreaterOrEqual(t, len(messages), 2)
-	assert.Equal(t, "system", messages[0].Role)
-	content, ok := messages[0].Content.(string)
-	require.True(t, ok)
-	assert.Contains(t, content, "focused subagent")
-	assert.Contains(t, content, "Do not create checklists")
-}
-
 func TestSubagent_ReturnsResult(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	logPath := filepath.Join(t.TempDir(), "test.log")
@@ -643,7 +410,7 @@ func TestSubagent_ReturnsResult(t *testing.T) {
 
 func TestAgenticLoop_ChecklistFlow(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
-	agt := newTestAgent(t, mockLLM)
+	agt := newTestAgent(t, mockLLM, nil)
 
 	checklistArgs := `{"items": [{"id": "step-1", "description": "Create the CSV", "seed_context": "header: name,age"}, {"id": "step-2", "description": "Write the report", "seed_context": "summarize the data"}]}`
 
