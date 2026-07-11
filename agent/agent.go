@@ -1,18 +1,16 @@
 package agent
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"ai-harness/common/logger"
 	"ai-harness/llm"
 	"ai-harness/skills"
 	"ai-harness/tools"
+	"ai-harness/tui"
 )
 
 var checklistToolDefinition = llm.ToolDefinition{
@@ -101,21 +99,12 @@ func (a *Agent) ChatHistory() []string {
 
 // agentPrint prints with the agent's prefix (empty for parent, "[sub:ID]" for subagents).
 func (a *Agent) agentPrint(format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
-	if a.printPrefix != "" {
-		fmt.Print(a.printPrefix + msg)
-	} else {
-		fmt.Print(msg)
-	}
+	tui.Printf(a.printPrefix+format, args...)
 }
 
 // agentPrintln is agentPrint with a trailing newline.
 func (a *Agent) agentPrintln(msg string) {
-	if a.printPrefix != "" {
-		fmt.Println(a.printPrefix + msg)
-	} else {
-		fmt.Println(msg)
-	}
+	tui.Print(a.printPrefix + msg)
 }
 
 // AgenticLoop runs the main agent loop: sends messages to LLM, processes tool calls, etc.
@@ -137,10 +126,9 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 
 	for {
 		// Only show loading spinner for parent agents
-		var done chan bool
+		var stopSpinner func()
 		if !a.isSubagent {
-			done = make(chan bool, 1)
-			go showLoading(done)
+			stopSpinner = tui.ShowSpinner("Thinking...")
 		}
 
 		var currentTools []llm.ToolDefinition
@@ -151,9 +139,8 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 		}
 
 		response, err := a.llmClient.Chat(messages, currentTools)
-		if done != nil {
-			done <- true
-			fmt.Print("\r                                \r")
+		if stopSpinner != nil {
+			stopSpinner()
 		}
 		if err != nil {
 			a.logger.SystemLog("[%s] Error calling LLM: %v", a.ID, err)
@@ -217,9 +204,9 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 					a.executeChecklist(checklist, tools)
 
 					summary := a.synthesizeChecklistResults(checklist, tools)
-					printSeparator()
-					fmt.Println(summary)
-					printSeparator()
+					tui.Sep()
+					tui.Print(summary)
+					tui.Sep()
 					a.logger.LogTurnEnd()
 					return summary
 				} else {
@@ -304,9 +291,9 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 		} else {
 			// Regular response (no checklist, or subagent)
 			if !a.isSubagent {
-				printSeparator()
-				fmt.Println(assistantContent)
-				printSeparator()
+				tui.Sep()
+				tui.Print(assistantContent)
+				tui.Sep()
 			} else {
 				a.agentPrintln("  ✅ Done")
 			}
@@ -422,42 +409,42 @@ func (a *Agent) HandleSlashCommands(cmd string) {
 
 	switch parts[0] {
 	case "/help":
-		fmt.Println("Available commands:")
-		fmt.Println("  /context  - Show context size (word/message count)")
-		fmt.Println("  /compact  - Compress chat history via LLM")
-		fmt.Println("  /help     - Show this help")
-		fmt.Println("  /skills   - Show loaded skills")
-		fmt.Println("  /perms    - Show approved tool permissions")
+		tui.Print("Available commands:")
+		tui.Print("  /context  - Show context size (word/message count)")
+		tui.Print("  /compact  - Compress chat history via LLM")
+		tui.Print("  /help     - Show this help")
+		tui.Print("  /skills   - Show loaded skills")
+		tui.Print("  /perms    - Show approved tool permissions")
 	case "/context":
 		a.mu.Lock()
 		totalWords := 0
 		for _, entry := range a.chatHistory {
 			totalWords += len(strings.Fields(entry))
 		}
-		fmt.Printf("  📊 Context: %d words (%d messages)\n", totalWords, len(a.chatHistory))
+		tui.Printf("  📊 Context: %d words (%d messages)", totalWords, len(a.chatHistory))
 		a.mu.Unlock()
 	case "/skills":
 		a.mu.Lock()
 		if len(a.skills) == 0 {
-			fmt.Println("  No skills loaded.")
+			tui.Print("  No skills loaded.")
 		} else {
-			fmt.Printf("  Loaded skills (%d):\n", len(a.skills))
+			tui.Printf("  Loaded skills (%d):", len(a.skills))
 			for _, s := range a.skills {
-				fmt.Printf("    - %s: %s\n", s.Name, s.Description)
+				tui.Printf("    - %s: %s", s.Name, s.Description)
 			}
 		}
 		a.mu.Unlock()
 	case "/perms":
 		a.mu.Lock()
 		if len(*a.toolAllowlist) == 0 {
-			fmt.Println("  No permissions granted yet.")
+			tui.Print("  No permissions granted yet.")
 		} else {
-			fmt.Println("  Approved permissions:")
+			tui.Print("  Approved permissions:")
 			for toolName, argsSummary := range *a.toolAllowlist {
 				if argsSummary != "" {
-					fmt.Printf("    - %s (%s)\n", toolName, argsSummary)
+					tui.Printf("    - %s (%s)", toolName, argsSummary)
 				} else {
-					fmt.Printf("    - %s\n", toolName)
+					tui.Printf("    - %s", toolName)
 				}
 			}
 		}
@@ -465,35 +452,33 @@ func (a *Agent) HandleSlashCommands(cmd string) {
 	case "/compact":
 		a.mu.Lock()
 		if len(a.chatHistory) == 0 {
-			fmt.Println("  No chat history to compact.")
+			tui.Print("  No chat history to compact.")
 			a.mu.Unlock()
 			return
 		}
 		fullText := strings.Join(a.chatHistory, "\n")
 		a.mu.Unlock()
 
-		done := make(chan bool, 1)
-		go showLoading(done)
+		stopSpinner := tui.ShowSpinner("Compressing...")
 		compressed, err := a.compactHistory(fullText)
-		done <- true
-		fmt.Print("\r                                \r")
+		stopSpinner()
 		if err != nil {
-			fmt.Printf("  Error compacting: %v\n", err)
+			tui.Printf("  Error compacting: %v", err)
 			return
 		}
 		a.mu.Lock()
 		a.chatHistory = []string{fmt.Sprintf("System: Compressed context — %s", compressed)}
 		a.mu.Unlock()
-		fmt.Printf("  ✅ Compressed to %d words.\n", len(strings.Fields(compressed)))
+		tui.Printf("  ✅ Compressed to %d words.", len(strings.Fields(compressed)))
 	default:
-		fmt.Printf("  Unknown command: %s\n", parts[0])
+		tui.Printf("  Unknown command: %s", parts[0])
 	}
 }
 
 // compactHistory sends chat history to the LLM for compression and returns the compressed summary.
 func (a *Agent) compactHistory(text string) (string, error) {
 	messages := []llm.Message{
-		{Role: "system", Content: "You are a chat history compressor. Compress the following conversation into a concise summary that preserves all key information, decisions, and context. Return ONLY the compressed text, no explanations."},
+		{Role: "system", Content: compactPrompt},
 		{Role: "user", Content: text},
 	}
 	response, err := a.llmClient.Chat(messages, nil)
@@ -536,6 +521,7 @@ func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
 	a.mu.Unlock()
 
 	// For bash, use the LLM-provided description, falling back to asking the LLM to explain
+	var explanation string
 	switch toolName {
 	case "bash":
 		command := ""
@@ -549,7 +535,7 @@ func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
 			}
 		}
 
-		explanation := description
+		explanation = description
 		if explanation == "" {
 			var err error
 			explanation, err = a.askForExplanation(command)
@@ -557,24 +543,12 @@ func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
 				explanation = fmt.Sprintf("Executes: %s", command)
 			}
 		}
-
-		fmt.Printf("\nTool '%s' wants to run\n", toolName)
-		fmt.Printf("  %s\n", explanation)
-		fmt.Print("Allow? (y/N. default yes): ")
-	case "curl_web":
-		// no-op
-	default:
-		fmt.Printf("\nTool '%s' wants to run with args: %s\nAllow? (y/N): ", toolName, argsSummary)
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Scan()
-	answer := strings.TrimSpace(scanner.Text())
-	if strings.ToLower(answer) == "n" {
+	allowed, err := tui.Consent(toolName, explanation, argsSummary)
+	if err != nil || !allowed {
 		return false
 	}
-
-	// Cache the permission
 	a.mu.Lock()
 	(*a.toolAllowlist)[toolName+argsSummary] = nil
 	a.mu.Unlock()
@@ -583,9 +557,7 @@ func (a *Agent) isToolAllowed(toolName string, argumentsJSON string) bool {
 
 // askForExplanation asks the LLM to explain what a bash command does in plain english.
 func (a *Agent) askForExplanation(command string) (string, error) {
-	prompt := fmt.Sprintf(
-		"Explain the following bash command in one short, succinct sentence. "+
-			"Do not leave out any important detail like flags, arguments, or side effects.\n\nCommand: %s", command)
+	prompt := fmt.Sprintf(explanationPrompt+"\n\nCommand: %s", command)
 
 	messages := []llm.Message{
 		{Role: "user", Content: prompt},
@@ -605,14 +577,6 @@ func (a *Agent) askForExplanation(command string) (string, error) {
 		return strings.TrimSpace(fmt.Sprintf("%v", v)), nil
 	}
 }
-
-// checklistSystemPrompt is injected for parent agents to instruct the LLM about checklists.
-const checklistSystemPrompt = `You must use the create_checklist tool as your very first action.
-If the user's task solution is multi-step or multi-instruction and benefits from decomposition into subtasks, provide a list of items.
-Each checklist item will be executed by a separate subagent with only the description and seed_context as input.`
-
-// subagentSystemPrompt is injected for subagents.
-const subagentSystemPrompt = "You are a focused subagent. Complete the following task thoroughly and respond with your final result. Do not create checklists."
 
 // createMessagesFromHistory converts the chat history to LLM messages,
 // injecting skills and agent-role-specific system prompts.
@@ -699,23 +663,4 @@ func convertToolsToAPIFormat(tools []llm.Tool) []llm.ToolDefinition {
 		}
 	}
 	return apiTools
-}
-
-func printSeparator() {
-	fmt.Println(strings.Repeat("━", 60))
-}
-
-func showLoading(done chan bool) {
-	frames := []string{"◐", "◓", "◑", "◒"}
-	i := 0
-	for {
-		select {
-		case <-done:
-			return
-		default:
-			fmt.Printf("\r  %s Thinking...", frames[i%len(frames)])
-			i++
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
 }

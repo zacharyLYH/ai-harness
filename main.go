@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -10,6 +9,7 @@ import (
 	"ai-harness/llm"
 	"ai-harness/skills"
 	"ai-harness/tools"
+	"ai-harness/tui"
 
 	"github.com/chzyer/readline"
 	"github.com/joho/godotenv"
@@ -19,7 +19,7 @@ func main() {
 	// Initialize logger
 	appLogger, loggerErr := logger.NewLogger()
 	if loggerErr != nil {
-		fmt.Println("Error creating logger:", loggerErr)
+		tui.PrintErr(loggerErr, "creating logger")
 		os.Exit(1)
 	}
 	defer appLogger.Close()
@@ -29,15 +29,14 @@ func main() {
 	// Load environment variables
 	err := godotenv.Load()
 	if err != nil {
-		appLogger.SystemLog("Error loading .env file: %v", err)
-		appLogger.UserPrint("Error loading .env file. Please check your configuration.")
+		tui.PrintErr(err, "loading .env file")
 		os.Exit(1)
 	}
 
 	// Run linting on tools
 	appLogger.SystemLog("Running tool linting...")
 	if !tools.RunToolLinting(appLogger.UserPrint) {
-		appLogger.UserPrint("Tool linting failed. Please fix the errors above.")
+		tui.Print("Tool linting failed. Please fix the errors above.")
 		os.Exit(1)
 	}
 	appLogger.SystemLog("Tool linting passed!")
@@ -46,8 +45,7 @@ func main() {
 	toolManager := tools.NewDefaultToolManager()
 	toolList, err := toolManager.LoadTools()
 	if err != nil {
-		appLogger.SystemLog("Error loading tools: %v", err)
-		appLogger.UserPrint("Error loading tools. Please check the tool files.")
+		tui.PrintErr(err, "loading tools")
 		os.Exit(1)
 	}
 
@@ -68,12 +66,16 @@ func main() {
 	agt := agent.New(llmClient, toolManager, appLogger)
 	agt.SetSkills(loadedSkills)
 
-	fmt.Println("Welcome to ai-harness project — type your prompt or /help")
-	printSeparator()
+	tui.Print("Welcome to ai-harness project — type your prompt or /help")
+	tui.Sep()
 
-	rl, err := readline.New("  > ")
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          "  > ",
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+	})
 	if err != nil {
-		fmt.Println("Error initializing input:", err)
+		tui.PrintErr(err, "initializing input")
 		os.Exit(1)
 	}
 	defer rl.Close()
@@ -84,7 +86,7 @@ func main() {
 			if err == readline.ErrInterrupt {
 				break
 			}
-			fmt.Println("Error reading input:", err)
+			tui.PrintErr(err, "reading input")
 			os.Exit(1)
 		}
 
@@ -100,9 +102,5 @@ func main() {
 
 		agt.AgenticLoop(prompt, toolList)
 	}
-	fmt.Println("bye")
-}
-
-func printSeparator() {
-	fmt.Println(strings.Repeat("━", 60))
+	tui.Print("Bye")
 }

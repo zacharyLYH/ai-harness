@@ -13,6 +13,7 @@ import (
 	"ai-harness/llm/mocks"
 	"ai-harness/skills"
 	"ai-harness/tools"
+	"ai-harness/tui"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -561,7 +562,7 @@ func TestConvertToolsToAPIFormat(t *testing.T) {
 
 func TestPrintSeparator(t *testing.T) {
 	output := captureOutput(func() {
-		printSeparator()
+		tui.Sep()
 	})
 	assert.Contains(t, output, strings.Repeat("━", 60))
 }
