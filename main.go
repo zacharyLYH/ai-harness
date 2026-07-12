@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
 	"os"
 
 	"ai-harness/agent"
@@ -8,6 +10,7 @@ import (
 	"ai-harness/common/logger"
 	"ai-harness/common/tui"
 	"ai-harness/llm"
+	"ai-harness/setup"
 	"ai-harness/skills"
 	"ai-harness/tools"
 
@@ -23,6 +26,20 @@ func main() {
 	defer appLogger.Close()
 
 	appLogger.SystemLog("Starting ai-harness application")
+
+	if _, err := setup.Run(
+		setup.RealFileIO{},
+		func(prompt string) (string, error) {
+			fmt.Print(prompt)
+			return bufio.NewReader(os.Stdin).ReadString('\n')
+		},
+		func(apiKey string) error {
+			return llm.NewOpenRouterClientWithKey(appLogger, apiKey).TestConnection()
+		},
+	); err != nil {
+		tui.PrintErr(err, "setting up OPENROUTER_API_KEY")
+		os.Exit(1)
+	}
 
 	err := godotenv.Load()
 	if err != nil {
