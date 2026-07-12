@@ -8,6 +8,7 @@ import (
 	"ai-harness/llm"
 	"ai-harness/llm/mocks"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -74,6 +75,58 @@ func TestToolCallAndResponse(t *testing.T) {
 	h.Expect("Allow?", 5*time.Second)
 	h.Send("y")
 	h.Expect("The file says hello", 10*time.Second)
+}
+
+func TestInitialPromptIncludesChecklistAndAllTools_SubagentsExcludeChecklist(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	toolList := append(append([]llm.Tool{}, testTools...), curlWebTool)
+	var initialTools, subagentTools []string
+	captureToolNames := func(definitions []llm.ToolDefinition) []string {
+		names := make([]string, len(definitions))
+		for i, definition := range definitions {
+			names[i] = definition.Function.Name
+		}
+		return names
+	}
+
+	mockLLM := mocks.NewClient(t)
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Run(func(_ []llm.Message, definitions []llm.ToolDefinition) {
+			initialTools = captureToolNames(definitions)
+		}).
+		Return(&llm.ChatResponse{Choices: []llm.Choice{{
+			FinishReason: "tool_calls",
+			Message: llm.Message{ToolCalls: []llm.ToolCall{{
+				ID: "checklist",
+				Function: llm.ToolCallFunction{
+					Name:      "create_checklist",
+					Arguments: `{"items":[{"id":"one","description":"First step","seed_context":""},{"id":"two","description":"Second step","seed_context":""}]}`,
+				},
+			}}},
+		}}}, nil).
+		Once()
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Run(func(_ []llm.Message, definitions []llm.ToolDefinition) {
+			subagentTools = captureToolNames(definitions)
+		}).
+		Return(integration.NewStopResponse("first step complete"), nil).
+		Once()
+	mockLLM.EXPECT().Chat(mock.Anything, mock.Anything).Return(integration.NewStopResponse("second step complete"), nil).Once()
+	mockLLM.EXPECT().Chat(mock.Anything, mock.Anything).Return(integration.NewStopResponse("Summary complete"), nil).Once()
+
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, toolList)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("research this")
+	h.Expect("Summary complete", 10*time.Second)
+
+	assert.Equal(t, []string{"create_checklist", "read_file", "curl_web"}, initialTools)
+	assert.Equal(t, []string{"read_file", "curl_web"}, subagentTools)
 }
 
 func TestToolConsentPrompt(t *testing.T) {
@@ -172,6 +225,26 @@ func TestDifferentArgsNeedSeparateConsent(t *testing.T) {
 	h.Expect("Allow?", 5*time.Second)
 	h.Send("y")
 
+	h.Expect("both files read", 10*time.Second)
+}
+
+func TestApproveAllToolCalls(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := mocks.NewClient(t)
+	mockLLM.EXPECT().Chat(mock.Anything, mock.Anything).Return(integration.NewChecklistBypassResponse("read two files"), nil).Once()
+	mockLLM.EXPECT().Chat(mock.Anything, mock.Anything).Return(integration.NewToolCallResponse("call_1", "read_file", `{"file_name":"a.txt"}`), nil).Once()
+	mockLLM.EXPECT().Chat(mock.Anything, mock.Anything).Return(integration.NewToolCallResponse("call_2", "read_file", `{"file_name":"b.txt"}`), nil).Once()
+	mockLLM.EXPECT().Chat(mock.Anything, mock.Anything).Return(integration.NewStopResponse("both files read"), nil).Once()
+
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, testTools)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("read a.txt and b.txt")
+	h.Expect("Allow?", 5*time.Second)
+	h.Send("a")
 	h.Expect("both files read", 10*time.Second)
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"ai-harness/llm"
@@ -147,32 +148,26 @@ func (m *DefaultToolManager) Execute(toolName string, argumentsJSON string, tool
 			cmdArgs := []string{tool.PathToTool}
 
 			for _, paramName := range tool.Params.Required {
-				if paramValue, ok := args[paramName]; ok {
-					if strValue, ok := paramValue.(string); ok {
-						cmdArgs = append(cmdArgs, strValue)
-					} else {
-						cmdArgs = append(cmdArgs, fmt.Sprintf("%v", paramValue))
-					}
+				paramValue, ok := args[paramName]
+				if !ok {
+					return fmt.Sprintf("Error executing tool %s: missing required argument %q", toolName, paramName)
 				}
+				cmdArgs = append(cmdArgs, fmt.Sprint(paramValue))
 			}
 
-			for paramName, paramValue := range args {
-				alreadyProcessed := false
-				for _, reqParam := range tool.Params.Required {
-					if paramName == reqParam {
-						alreadyProcessed = true
-						break
-					}
+			required := make(map[string]bool, len(tool.Params.Required))
+			for _, paramName := range tool.Params.Required {
+				required[paramName] = true
+			}
+			optional := make([]string, 0, len(args))
+			for paramName := range args {
+				if !required[paramName] {
+					optional = append(optional, paramName)
 				}
-				if alreadyProcessed {
-					continue
-				}
-
-				if strValue, ok := paramValue.(string); ok {
-					cmdArgs = append(cmdArgs, strValue)
-				} else {
-					cmdArgs = append(cmdArgs, fmt.Sprintf("%v", paramValue))
-				}
+			}
+			sort.Strings(optional)
+			for _, paramName := range optional {
+				cmdArgs = append(cmdArgs, fmt.Sprint(args[paramName]))
 			}
 
 			cmd := exec.Command("python3", cmdArgs...)

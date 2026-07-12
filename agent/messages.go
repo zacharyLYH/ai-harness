@@ -1,11 +1,29 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 
 	"ai-harness/llm"
 	"ai-harness/skills"
 )
+
+func firstChoice(response *llm.ChatResponse) (llm.Choice, error) {
+	if response == nil || len(response.Choices) == 0 {
+		return llm.Choice{}, fmt.Errorf("empty response from LLM")
+	}
+	return response.Choices[0], nil
+}
+
+func messageContent(content any) string {
+	if content == nil {
+		return ""
+	}
+	if text, ok := content.(string); ok {
+		return text
+	}
+	return fmt.Sprintf("%v", content)
+}
 
 func (a *Agent) createMessagesFromHistory() []llm.Message {
 	var messages []llm.Message

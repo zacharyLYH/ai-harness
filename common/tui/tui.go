@@ -15,7 +15,16 @@ const (
 	Green  = "\033[32m"
 	Yellow = "\033[33m"
 	Blue   = "\033[34m"
+	Cyan   = "\033[36m"
 	Gray   = "\033[90m"
+)
+
+type ConsentDecision int
+
+const (
+	ConsentDenied ConsentDecision = iota
+	ConsentOnce
+	ConsentAll
 )
 
 func Print(msg string) {
@@ -24,6 +33,14 @@ func Print(msg string) {
 
 func Printf(format string, args ...interface{}) {
 	fmt.Printf(format+"\n", args...)
+}
+
+func Mutedf(format string, args ...interface{}) {
+	Printf(Gray+format+Reset, args...)
+}
+
+func Infof(format string, args ...interface{}) {
+	Printf(Cyan+format+Reset, args...)
 }
 
 func PrintErr(err error, msg string) {
@@ -49,7 +66,7 @@ func ShowSpinner(text string) func() {
 		for {
 			select {
 			case <-done:
-				fmt.Print("\r                                \r")
+				fmt.Print("\r\033[2K")
 				return
 			default:
 				fmt.Printf("\r  "+Blue+"%s"+Reset+" %s", frames[i%len(frames)], text)
@@ -61,21 +78,27 @@ func ShowSpinner(text string) func() {
 	return func() { close(done); wg.Wait() }
 }
 
-func Consent(toolName, explanation, argsSummary string) (bool, error) {
+func Consent(toolName, explanation, argsSummary string) (ConsentDecision, error) {
+	fmt.Printf("\n  %sPermission required%s · %s\n", Yellow, Reset, toolName)
 	if toolName == "bash" && explanation != "" {
-		fmt.Printf("\nTool '%s' wants to run\n", toolName)
-		fmt.Printf("  %s\n", explanation)
+		fmt.Printf("  %s%s%s\n", Gray, explanation, Reset)
 	} else if argsSummary != "" {
-		fmt.Printf("\nTool '%s' wants to run with args: %s\n", toolName, argsSummary)
+		fmt.Printf("  %s%s%s\n", Gray, argsSummary, Reset)
 	}
 
-	fmt.Printf("Allow? %s(y/N)%s: ", Yellow, Reset)
+	fmt.Printf("Allow? [y] once, [a] all %s calls, [N] no: ", toolName)
 
 	scanner := bufio.NewReader(os.Stdin)
 	line, err := scanner.ReadString('\n')
 	if err != nil {
-		return false, err
+		return ConsentDenied, err
 	}
 	answer := strings.TrimSpace(line)
-	return strings.ToLower(answer) != "n", nil
+	if strings.EqualFold(answer, "a") {
+		return ConsentAll, nil
+	}
+	if strings.EqualFold(answer, "n") {
+		return ConsentDenied, nil
+	}
+	return ConsentOnce, nil
 }

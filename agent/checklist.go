@@ -45,7 +45,7 @@ func (a *Agent) spawnSubagent(item ChecklistItem, tools []llm.Tool) string {
 	}
 
 	a.logger.SystemLog("[%s] Spawning subagent: %s", a.ID, subID)
-	tui.Printf(a.printPrefix+"\n  🚀 Spawning subagent: %s — %s\n", subID, item.Description)
+	tui.Infof(a.printPrefix+"\n  🚀 Spawning subagent: %s — %s\n", subID, item.Description)
 	return sub.AgenticLoop(prompt, tools)
 }
 
@@ -55,7 +55,7 @@ func (a *Agent) executeChecklist(checklist *Checklist, tools []llm.Tool) {
 	for i := range checklist.Items {
 		item := &checklist.Items[i]
 		item.Status = "in_progress"
-		tui.Printf(a.printPrefix+"  📌 [%d/%d] %s\n", i+1, len(checklist.Items), item.Description)
+		tui.Mutedf(a.printPrefix+"  📌 [%d/%d] %s\n", i+1, len(checklist.Items), item.Description)
 
 		if previousResults.Len() > 0 {
 			if item.SeedContext != "" {
@@ -76,7 +76,7 @@ func (a *Agent) executeChecklist(checklist *Checklist, tools []llm.Tool) {
 			previousResults.WriteString(fmt.Sprintf("- Step %d (%s): FAILED\n", i+1, item.Description))
 		}
 
-		tui.Printf(a.printPrefix+"  ✓ [%d/%d] %s — %s\n", i+1, len(checklist.Items), item.Description, item.Status)
+		tui.Infof(a.printPrefix+"  ✓ [%d/%d] %s — %s\n", i+1, len(checklist.Items), item.Description, item.Status)
 	}
 }
 
@@ -97,15 +97,9 @@ func (a *Agent) synthesizeChecklistResults(checklist *Checklist, tools []llm.Too
 		return sb.String()
 	}
 
-	if len(response.Choices) == 0 {
+	choice, err := firstChoice(response)
+	if err != nil {
 		return sb.String()
 	}
-
-	content := response.Choices[0].Message.Content
-	switch v := content.(type) {
-	case string:
-		return v
-	default:
-		return fmt.Sprintf("%v", v)
-	}
+	return messageContent(choice.Message.Content)
 }

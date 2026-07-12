@@ -63,40 +63,33 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 			stopSpinner = tui.ShowSpinner("Thinking...")
 		}
 
-		var currentTools []llm.ToolDefinition
+		currentTools := apiTools
 		if !a.isSubagent && !a.hasChecklist {
-			currentTools = []llm.ToolDefinition{toolslib.ChecklistToolDefinition}
-		} else {
-			currentTools = apiTools
+			currentTools = append([]llm.ToolDefinition{toolslib.ChecklistToolDefinition}, apiTools...)
 		}
 
 		response, err := a.llmClient.Chat(messages, currentTools)
+		choice, choiceErr := firstChoice(response)
 		if stopSpinner != nil {
 			stopSpinner()
 		}
-		if err != nil {
+		if err != nil || choiceErr != nil {
+			if err == nil {
+				err = choiceErr
+			}
 			a.logger.SystemLog("[%s] Error calling LLM: %v", a.ID, err)
 			tui.Printf("Error: LLM API error: %v\nPlease try again later.\n", err)
 			a.logger.LogTurnEnd()
 			return ""
 		}
 
-		assistantMessage := response.Choices[0].Message
-		assistantContent := ""
-
-		switch v := assistantMessage.Content.(type) {
-		case string:
-			assistantContent = v
-		case nil:
-			assistantContent = ""
-		default:
-			assistantContent = fmt.Sprintf("%v", v)
-		}
+		assistantMessage := choice.Message
+		assistantContent := messageContent(assistantMessage.Content)
 
 		a.appendToHistory("Assistant: %s", assistantContent)
 		a.logger.LogLLMMessage(assistantContent)
 
-		if response.Choices[0].FinishReason == "tool_calls" && len(assistantMessage.ToolCalls) > 0 {
+		if choice.FinishReason == "tool_calls" && len(assistantMessage.ToolCalls) > 0 {
 			toolCall := assistantMessage.ToolCalls[0]
 			a.logger.LogToolCall(toolCall.Function.Name, toolCall.Function.Arguments)
 
@@ -119,9 +112,9 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 						}
 					}
 
-					tui.Printf(a.printPrefix+"\n  📋 Checklist detected with %d items\n", len(checklist.Items))
+					tui.Infof(a.printPrefix+"\n  📋 Checklist detected with %d items\n", len(checklist.Items))
 					for _, item := range checklist.Items {
-						tui.Printf(a.printPrefix+"    - %s\n", item.Description)
+						tui.Mutedf(a.printPrefix+"    - %s\n", item.Description)
 					}
 					a.logger.SystemLog("[%s] Checklist created: %+v", a.ID, checklist)
 
@@ -134,7 +127,7 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 					a.logger.LogTurnEnd()
 					return summary
 				} else {
-					tui.Printf(a.printPrefix + "\n  🚀 Simple task detected. Executing directly...\n")
+					tui.Mutedf(a.printPrefix + "  · Plan: simple request — continuing")
 					a.logger.SystemLog("[%s] Simple task bypass", a.ID)
 					messages = a.addToolTurn(messages, assistantMessage, toolCall.ID, toolCall.Function.Name, "Checklist accepted. Task is simple. Proceed directly with standard tools.")
 					continue
@@ -142,7 +135,7 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 			}
 
 			if skill := skills.FindSkillByName(a.skills, toolCall.Function.Name); skill != nil {
-				tui.Printf(a.printPrefix+"\n  ⚙ Loading skill: %s\n", skill.Name)
+				tui.Infof(a.printPrefix+"  · Skill: %s", skill.Name)
 				a.appendToHistory("System Skill Context: %s", skill.Instructions)
 				messages = a.addToolTurn(messages, assistantMessage, toolCall.ID, toolCall.Function.Name, skill.Instructions)
 				continue
@@ -155,22 +148,24 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 				continue
 			}
 
-			tui.Printf(a.printPrefix+"\n  ⚙ Running tool: %s\n", toolCall.Function.Name)
+			tui.Infof(a.printPrefix+"  → Running %s", toolCall.Function.Name)
 			toolResult := a.toolManager.Execute(toolCall.Function.Name, toolCall.Function.Arguments, tools)
 			a.appendToHistory("Tool %s executed: %s", toolCall.Function.Name, toolResult)
 			messages = a.addToolTurn(messages, assistantMessage, toolCall.ID, toolCall.Function.Name, toolResult)
 			continue
-		} else {
-			if !a.isSubagent {
-				tui.Sep()
-				tui.Print(assistantContent)
-				tui.Sep()
-			} else {
-				tui.Print(a.printPrefix + "  ✅ Done")
-			}
-			a.logger.LogTurnEnd()
-			return assistantContent
 		}
+
+		if !a.isSubagent {
+			tui.Sep()
+			tui.Print(tui.Blue + "  Answer" + tui.Reset)
+			tui.Sep()
+			tui.Print(assistantContent)
+			tui.Sep()
+		} else {
+			tui.Print(a.printPrefix + "  ✅ Done")
+		}
+		a.logger.LogTurnEnd()
+		return assistantContent
 	}
 }
 

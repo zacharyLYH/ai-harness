@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"ai-harness/common/tui"
@@ -19,6 +20,7 @@ func (a *Agent) HandleSlashCommands(cmd string) {
 		tui.Print("Available commands:")
 		tui.Print("  /context  - Show context size (word/message count)")
 		tui.Print("  /compact  - Compress chat history via LLM")
+		tui.Print("  /clear    - Clear chat history")
 		tui.Print("  /help     - Show this help")
 		tui.Print("  /skills   - Show loaded skills")
 		tui.Print("  /perms    - Show approved tool permissions")
@@ -47,7 +49,14 @@ func (a *Agent) HandleSlashCommands(cmd string) {
 			tui.Print("  No permissions granted yet.")
 		} else {
 			tui.Print("  Approved permissions:")
-			for toolName, argsSummary := range *a.toolAllowlist {
+			keys := make([]string, 0, len(*a.toolAllowlist))
+			for key := range *a.toolAllowlist {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				toolName, _, _ := strings.Cut(key, "\x00")
+				argsSummary, _ := (*a.toolAllowlist)[key].(string)
 				if argsSummary != "" {
 					tui.Printf("    - %s (%s)", toolName, argsSummary)
 				} else {
@@ -56,6 +65,11 @@ func (a *Agent) HandleSlashCommands(cmd string) {
 			}
 		}
 		a.mu.Unlock()
+	case "/clear":
+		a.mu.Lock()
+		a.chatHistory = nil
+		a.mu.Unlock()
+		tui.Print("  ✅ Chat history cleared.")
 	case "/compact":
 		a.mu.Lock()
 		if len(a.chatHistory) == 0 {
@@ -91,14 +105,9 @@ func (a *Agent) compactHistory(text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(response.Choices) == 0 {
-		return "", fmt.Errorf("no response from LLM")
+	choice, err := firstChoice(response)
+	if err != nil {
+		return "", err
 	}
-	content := response.Choices[0].Message.Content
-	switch v := content.(type) {
-	case string:
-		return v, nil
-	default:
-		return fmt.Sprintf("%v", v), nil
-	}
+	return messageContent(choice.Message.Content), nil
 }

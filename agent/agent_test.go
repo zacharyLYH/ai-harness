@@ -134,6 +134,32 @@ func TestAgenticLoop_NoToolCalls(t *testing.T) {
 	assert.Contains(t, history[1], "Hello!")
 }
 
+func TestAgenticLoop_InitialToolsIncludeChecklistAndSearch(t *testing.T) {
+	mockLLM := mocks.NewClient(t)
+	agt := newTestAgent(t, mockLLM, nil)
+	searchTool := llm.Tool{ToolName: "duckduckgo_search", Description: "Searches the web"}
+
+	var toolNames []string
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Run(func(_ []llm.Message, definitions []llm.ToolDefinition) {
+			for _, definition := range definitions {
+				toolNames = append(toolNames, definition.Function.Name)
+			}
+		}).
+		Return(&llm.ChatResponse{Choices: []llm.Choice{{
+			FinishReason: "stop",
+			Message:      llm.Message{Content: "Done"},
+		}}}, nil).
+		Once()
+
+	captureOutput(func() {
+		agt.AgenticLoop("search the web", []llm.Tool{searchTool})
+	})
+
+	assert.Equal(t, []string{"create_checklist", "duckduckgo_search"}, toolNames)
+}
+
 func TestAgenticLoop_ToolCallThenResponse(t *testing.T) {
 	mockLLM := mocks.NewClient(t)
 	agt := newTestAgent(t, mockLLM, nil)

@@ -1,7 +1,7 @@
 package agent
 
 // checklistSystemPrompt is injected for parent agents to instruct the LLM about checklists.
-const checklistSystemPrompt = `You must use the create_checklist tool as your very first action.
+const checklistSystemPrompt = `Start every request by calling create_checklist. Before creating it, consider the available tools and include steps that use the capabilities needed to complete the request, such as web search.
 If the user's task solution is multi-step or multi-instruction and benefits from decomposition into subtasks, provide a list of items.
 Each checklist item will be executed by a separate subagent with only the description and seed_context as input.`
 
