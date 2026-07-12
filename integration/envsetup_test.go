@@ -13,10 +13,10 @@ import (
 
 // fakeFileIO is a mock FileIO for testing setup.Run.
 type fakeFileIO struct {
-	written   map[string][]byte
-	writeErr  error
-	readData  []byte
-	readErr   error
+	written  map[string][]byte
+	writeErr error
+	readData []byte
+	readErr  error
 }
 
 func newFakeFileIO() *fakeFileIO {

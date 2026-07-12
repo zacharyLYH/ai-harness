@@ -232,3 +232,14 @@ func NewStopResponse(content string) *llm.ChatResponse {
 		}},
 	}
 }
+
+// NewMockLLMWithError creates a mock LLM whose Chat returns the given error.
+func NewMockLLMWithError(t *testing.T, err error) *mocks.Client {
+	t.Helper()
+	mockLLM := mocks.NewClient(t)
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Return(nil, err).
+		Once()
+	return mockLLM
+}

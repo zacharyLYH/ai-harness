@@ -67,7 +67,7 @@ func (c *OpenRouterClient) Chat(messages []Message, tools []ToolDefinition) (*Ch
 // complete sends a chat completion request to OpenRouter with exponential backoff retry.
 func (c *OpenRouterClient) complete(model string, messages []Message, tools []ToolDefinition) (*ChatResponse, error) {
 	temperature := 0.7
-	maxToken := 1000
+	maxToken := 10000
 
 	requestBody := ChatRequest{
 		Model:       model,
@@ -138,6 +138,13 @@ func (c *OpenRouterClient) complete(model string, messages []Message, tools []To
 
 		// Log the entire response
 		c.logger.LogAPIResponse(chatResp)
+
+		// Treat empty choices as a retryable error — this should never happen
+		if len(chatResp.Choices) == 0 {
+			lastErr = fmt.Errorf("empty choices in LLM response")
+			c.logger.SystemLog("Empty choices in response, retrying (attempt %d/%d)", attempt+1, maxRetries+1)
+			continue
+		}
 
 		// Success - return the response
 		response = &chatResp

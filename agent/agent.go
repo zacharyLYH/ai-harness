@@ -76,11 +76,7 @@ func (a *Agent) AgenticLoop(prompt string, tools []llm.Tool) string {
 		}
 		if err != nil {
 			a.logger.SystemLog("[%s] Error calling LLM: %v", a.ID, err)
-			return ""
-		}
-
-		if len(response.Choices) == 0 {
-			a.logger.SystemLog("[%s] No response from LLM", a.ID)
+			tui.Printf("Error: LLM API error: %v\nPlease try again later.\n", err)
 			a.logger.LogTurnEnd()
 			return ""
 		}
@@ -196,4 +192,3 @@ func (a *Agent) addToolTurn(messages []llm.Message, assistantMessage llm.Message
 	a.logger.LogTurnStart(a.turnCount)
 	return messages
 }
-
