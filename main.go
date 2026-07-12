@@ -27,7 +27,11 @@ func main() {
 
 	appLogger.SystemLog("Starting ai-harness application")
 
-	if _, err := setup.Run(
+	// Load .env first so an existing OPENROUTER_API_KEY is available to setup.
+	// A missing file is fine — setup.Run will prompt for the key instead.
+	_ = godotenv.Load()
+
+	apiKey, err := setup.Run(
 		setup.RealFileIO{},
 		func(prompt string) (string, error) {
 			fmt.Print(prompt)
@@ -36,16 +40,14 @@ func main() {
 		func(apiKey string) error {
 			return llm.NewOpenRouterClientWithKey(appLogger, apiKey).TestConnection()
 		},
-	); err != nil {
+	)
+	if err != nil {
 		tui.PrintErr(err, "setting up OPENROUTER_API_KEY")
 		os.Exit(1)
 	}
-
-	err := godotenv.Load()
-	if err != nil {
-		tui.PrintErr(err, "loading .env file")
-		os.Exit(1)
-	}
+	// Ensure the resolved key is available to the rest of the app
+	// (e.g. when it was just prompted for and written to .env).
+	os.Setenv(setup.EnvKey, apiKey)
 
 	appLogger.SystemLog("Running tool linting...")
 	if !tools.RunToolLinting(appLogger.UserPrint) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -25,10 +26,20 @@ func NewLogger(filePath ...string) (*Logger, error) {
 	path := "common/logger/log.txt"
 	if len(filePath) > 0 {
 		path = filePath[0]
+	} else if _, err := os.Stat("common/logger"); err != nil {
+		// Not launched from the repo root (e.g. installed binary run from
+		// elsewhere): use a CWD-independent cache location instead.
+		if cacheDir, cerr := os.UserCacheDir(); cerr == nil {
+			path = filepath.Join(cacheDir, "ai-harness", "log.txt")
+		}
 	}
 	rawPath := strings.Replace(path, ".txt", "_raw.txt", 1)
 	if rawPath == path {
 		rawPath = path + ".raw"
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, err
 	}
 
 	// os.O_TRUNC wipes the file if it exists.
