@@ -63,4 +63,4 @@ $SUDO install -m 0755 "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
 $SUDO cp -R "$TMP_DIR/tools" "$INSTALL_DIR/"
 $SUDO cp -R "$TMP_DIR/skills" "$INSTALL_DIR/"
 
-echo "Done. Run '$BINARY_NAME' to start."
+echo "Done. Type '$BINARY_NAME' in your terminal to start the cli."

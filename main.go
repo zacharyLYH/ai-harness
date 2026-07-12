@@ -75,7 +75,9 @@ func main() {
 	llmClient := llm.NewOpenRouterClient(appLogger)
 	agt := agent.New(llmClient, toolManager, appLogger, loadedSkills)
 
-	tui.Print("Welcome to ai-harness project — type your prompt or /help")
+	tui.Sep()
+	tui.Print(tui.Blue + "  ⚡ ai-harness" + tui.Reset)
+	tui.Print("  Type your prompt, or use " + tui.Yellow + "/help" + tui.Reset + " to see commands.")
 	tui.Sep()
 
 	app.RunInteractiveLoop(agt, toolList, "  > ", nil)
