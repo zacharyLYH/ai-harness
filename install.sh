@@ -50,6 +50,15 @@ fi
 
 echo "Installing to $INSTALL_DIR/$BINARY_NAME..."
 tar -xzf "$ARCHIVE" -C "$TMP_DIR"
+
+# Wipe any previous install so reinstalls are fully clean (no stale tools,
+# skills, or cached logs linger).
+$SUDO rm -rf "$INSTALL_DIR/$BINARY_NAME" "$INSTALL_DIR/tools" "$INSTALL_DIR/skills"
+case "$OS" in
+  darwin) rm -rf "$HOME/Library/Caches/ai-harness" ;;
+  linux)  rm -rf "$HOME/.cache/ai-harness" ;;
+esac
+
 $SUDO install -m 0755 "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
 $SUDO cp -R "$TMP_DIR/tools" "$INSTALL_DIR/"
 $SUDO cp -R "$TMP_DIR/skills" "$INSTALL_DIR/"
