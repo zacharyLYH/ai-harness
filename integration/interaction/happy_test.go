@@ -281,6 +281,6 @@ func TestSlashSkillsEmpty(t *testing.T) {
 
 	h.Expect("ai-harness > ", 3*time.Second)
 
-	h.Send("/skills")
+	h.Send("/skill")
 	h.Expect("No skills loaded", 3*time.Second)
 }

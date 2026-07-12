@@ -67,13 +67,21 @@ func main() {
 
 	loadedSkills, err := skills.LoadAllSkills(filepath.Join(tools.AssetBase(), "skills", "skills"))
 	if err != nil {
-		appLogger.SystemLog("Warning: could not load skills: %v", err)
+		appLogger.SystemLog("Warning: could not load bundled skills: %v", err)
 		loadedSkills = []skills.Skill{}
 	}
-	appLogger.SystemLog("Loaded %d skills", len(loadedSkills))
+
+	userSkillsDir := skills.UserSkillsDir()
+	userSkills, err := skills.LoadAllSkills(userSkillsDir)
+	if err != nil {
+		appLogger.SystemLog("Warning: could not load user skills: %v", err)
+	} else {
+		loadedSkills = append(loadedSkills, userSkills...)
+	}
+	appLogger.SystemLog("Loaded %d skills (%d user)", len(loadedSkills), len(userSkills))
 
 	llmClient := llm.NewOpenRouterClient(appLogger)
-	agt := agent.New(llmClient, toolManager, appLogger, loadedSkills)
+	agt := agent.New(llmClient, toolManager, appLogger, loadedSkills, userSkillsDir)
 
 	tui.Sep()
 	tui.Print(tui.Blue + "  ⚡ ai-harness" + tui.Reset)

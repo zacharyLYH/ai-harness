@@ -125,7 +125,7 @@ func TestMultipleSlashCommandsInSequence(t *testing.T) {
 	h.Send("/context")
 	h.Expect("0 words", 3*time.Second)
 
-	h.Send("/skills")
+	h.Send("/skill")
 	h.Expect("No skills loaded", 3*time.Second)
 }
 

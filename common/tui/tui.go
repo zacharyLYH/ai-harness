@@ -78,6 +78,37 @@ func ShowSpinner(text string) func() {
 	return func() { close(done); wg.Wait() }
 }
 
+// ReadLine prompts the user and reads a single line of input.
+func ReadLine(prompt string) string {
+	fmt.Printf("  %s%s%s", Cyan, prompt, Reset)
+	scanner := bufio.NewReader(os.Stdin)
+	line, err := scanner.ReadString('\n')
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(line)
+}
+
+// ReadMultiLine prompts the user and reads multi-line input.
+// Input is terminated by an empty line (user presses Enter on a blank line).
+func ReadMultiLine(prompt string) string {
+	fmt.Printf("  %s%s%s %s(multi-line, empty line to finish)%s\n", Cyan, prompt, Reset, Gray, Reset)
+	var lines []string
+	scanner := bufio.NewReader(os.Stdin)
+	for {
+		line, err := scanner.ReadString('\n')
+		if err != nil {
+			break
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" && len(lines) > 0 {
+			break
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func Consent(toolName, explanation, argsSummary string) (ConsentDecision, error) {
 	fmt.Printf("\n  %sPermission required%s · %s\n", Yellow, Reset, toolName)
 	if toolName == "bash" && explanation != "" {

@@ -116,7 +116,7 @@ func NewTestAgent(t *testing.T, mockLLM *mocks.Client) *agent.Agent {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { log.Close() })
-	return agent.New(mockLLM, tools.NewDefaultToolManager(), log, nil)
+	return agent.New(mockLLM, tools.NewDefaultToolManager(), log, nil, "")
 }
 
 // NewTestAgentWithSkills creates a logger + agent with loaded skills.
@@ -128,7 +128,19 @@ func NewTestAgentWithSkills(t *testing.T, mockLLM *mocks.Client, loadedSkills []
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { log.Close() })
-	return agent.New(mockLLM, tools.NewDefaultToolManager(), log, loadedSkills)
+	return agent.New(mockLLM, tools.NewDefaultToolManager(), log, loadedSkills, "")
+}
+
+// NewTestAgentWithSkillsDir creates a logger + agent with a writable skills directory.
+func NewTestAgentWithSkillsDir(t *testing.T, mockLLM *mocks.Client, loadedSkills []skills.Skill, skillsDir string) *agent.Agent {
+	t.Helper()
+	logPath := filepath.Join(t.TempDir(), "test.log")
+	log, err := logger.NewLogger(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { log.Close() })
+	return agent.New(mockLLM, tools.NewDefaultToolManager(), log, loadedSkills, skillsDir)
 }
 
 // BootLoop starts RunInteractiveLoop in a goroutine and returns a done channel

@@ -10,7 +10,7 @@ You will also need to get an [Openrouter API key](https://openrouter.ai/workspac
 # Features
 1. Bash access that requires consent before execution
 2. General consent request for tool calls
-3. Skills
+3. Add, view, update, delete skills
 4. Checklists and subagents, to keep the model in line and focused on the overall goal
 5. Basic web search using duckduckgo api
 
@@ -21,6 +21,20 @@ Paste the prompts into the terminal. You are encouraged to open up `common/logge
 2. Assuming you've done(1), `Find out if 'Xavier' is a person in the csv you created. If not, create it.` (We expect the bash tool)
 ## Use skill
 1. `Write me a poem about a fat cat with a brown hat.` (We expect to use the poem skill)
+
+## Manage skills
+Skills are reusable instruction files stored in `~/.ai-harness/skills`. Manage them from the prompt:
+
+```text
+/skill list
+/skill create
+/skill show <name>
+/skill edit <name>
+/skill delete <name>
+```
+
+`/skill create` and `/skill edit` guide you through the name, short trigger description, and Markdown instructions. New and edited skills are available in the next message; use `/skill show <name>` to review exactly what will be used. `/skills`, `/skill add`, and `/skill view` remain supported aliases.
+
 ## Using web search and multi-turn
 1. `Find out how many people stay in lombok indonesia then write the list to a file` (We expect to use duckduckgo search tool and the write file tool)
 2. It should declare it has 2 checklist items to do and will spawn up 2 subagents

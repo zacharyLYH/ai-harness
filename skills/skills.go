@@ -20,6 +20,11 @@ type Skill struct {
 // LoadAllSkills walks the given directory looking for SKILL.md files and parses them.
 func LoadAllSkills(skillsDir string) ([]Skill, error) {
 	var skills []Skill
+	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
+		return skills, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("checking skills directory %s: %v", skillsDir, err)
+	}
 
 	err := filepath.Walk(skillsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -156,4 +161,78 @@ func FindSkillByName(skills []Skill, name string) *Skill {
 // IsSkillTool returns true if the given tool name matches a loaded skill.
 func IsSkillTool(toolName string, skills []Skill) bool {
 	return FindSkillByName(skills, toolName) != nil
+}
+
+// UserSkillsDir returns the path to the user's personal skills directory (~/.ai-harness/skills).
+// This directory persists across app reinstalls.
+func UserSkillsDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".ai-harness", "skills")
+}
+
+// SaveSkill writes a skill to disk as a SKILL.md file under the given directory.
+// It creates the directory structure: <skillsDir>/<name>/SKILL.md
+func SaveSkill(skillsDir string, skill Skill) error {
+	if err := ValidateName(skill.Name); err != nil {
+		return err
+	}
+	if strings.TrimSpace(skill.Description) == "" {
+		return fmt.Errorf("skill description is required")
+	}
+	skillDir := filepath.Join(skillsDir, skill.Name)
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		return fmt.Errorf("failed to create skill directory: %v", err)
+	}
+
+	content := FormatSkillFile(skill)
+	path := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write SKILL.md: %v", err)
+	}
+	return nil
+}
+
+// DeleteSkill removes a skill's directory and SKILL.md file.
+func DeleteSkill(skillsDir string, name string) error {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
+	skillDir := filepath.Join(skillsDir, name)
+	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
+		return fmt.Errorf("skill %q not found", name)
+	}
+	return os.RemoveAll(skillDir)
+}
+
+// NormalizeName converts a human-entered title into a skill name.
+func NormalizeName(name string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(name)), "-"))
+}
+
+// ValidateName ensures a skill name is safe to use as both a tool and directory name.
+func ValidateName(name string) error {
+	if name == "" {
+		return fmt.Errorf("skill name is required")
+	}
+	if len(name) > 63 {
+		return fmt.Errorf("skill name must be 63 characters or fewer")
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return fmt.Errorf("skill name %q must use lowercase letters, numbers, and hyphens only", name)
+		}
+	}
+	if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") || strings.Contains(name, "--") {
+		return fmt.Errorf("skill name %q cannot start, end, or repeat hyphens", name)
+	}
+	return nil
+}
+
+// FormatSkillFile generates the SKILL.md content for a skill.
+func FormatSkillFile(skill Skill) string {
+	frontmatter, _ := yaml.Marshal(struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}{Name: skill.Name, Description: skill.Description})
+	return "---\n" + string(frontmatter) + "---\n\n" + skill.Instructions
 }

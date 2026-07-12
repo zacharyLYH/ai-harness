@@ -35,6 +35,7 @@ func (a *Agent) spawnSubagent(item ChecklistItem, tools []llm.Tool) string {
 		chatHistory:   make([]string, 0),
 		toolAllowlist: a.toolAllowlist,
 		skills:        a.skills,
+		skillsDir:     a.skillsDir,
 		depth:         a.depth + 1,
 		turnCount:     0,
 	}

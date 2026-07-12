@@ -24,12 +24,13 @@ type Agent struct {
 	chatHistory   []string
 	toolAllowlist *map[string]interface{}
 	skills        []skills.Skill
+	skillsDir     string
 	mu            sync.Mutex
 	depth         int
 	turnCount     int
 }
 
-func New(llmClient llm.Client, toolManager *toolslib.DefaultToolManager, logger *logger.Logger, loadedSkills []skills.Skill) *Agent {
+func New(llmClient llm.Client, toolManager *toolslib.DefaultToolManager, logger *logger.Logger, loadedSkills []skills.Skill, skillsDir string) *Agent {
 	allowlist := make(map[string]interface{})
 	return &Agent{
 		ID:            "root",
@@ -41,6 +42,7 @@ func New(llmClient llm.Client, toolManager *toolslib.DefaultToolManager, logger 
 		chatHistory:   make([]string, 0),
 		toolAllowlist: &allowlist,
 		skills:        loadedSkills,
+		skillsDir:     skillsDir,
 		depth:         0,
 		turnCount:     0,
 	}

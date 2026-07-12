@@ -31,7 +31,7 @@ func newTestAgent(t *testing.T, mockLLM *mocks.Client, skills []skills.Skill) *A
 		mockLLM = mocks.NewClient(t)
 	}
 
-	return New(mockLLM, tools.NewDefaultToolManager(), log, skills)
+	return New(mockLLM, tools.NewDefaultToolManager(), log, skills, "")
 }
 
 // captureOutput executes f and returns everything written to stdout.
@@ -231,12 +231,12 @@ func TestAgenticLoop_LLMError(t *testing.T) {
 	assert.Equal(t, "User: hi", history[0])
 }
 
-// --- /skills tests ---
+// --- /skill tests ---
 
 func TestHandleSlashCommands_Skills_NoSkills(t *testing.T) {
 	agt := newTestAgent(t, nil, nil)
 	output := captureOutput(func() {
-		agt.HandleSlashCommands("/skills")
+		agt.HandleSlashCommands("/skill")
 	})
 	assert.Contains(t, output, "No skills loaded")
 }
@@ -411,6 +411,7 @@ func TestSubagent_ReturnsResult(t *testing.T) {
 		chatHistory:   make([]string, 0),
 		toolAllowlist: &allowlist,
 		skills:        make([]skills.Skill, 0),
+		skillsDir:     "",
 	}
 
 	mockLLM.EXPECT().
@@ -525,12 +526,14 @@ func TestSharedToolAllowlist(t *testing.T) {
 		ID:            "root",
 		toolAllowlist: &allowlist,
 		logger:        log,
+		skillsDir:     "",
 	}
 	sub := &Agent{
 		ID:            "sub-1",
 		isSubagent:    true,
 		toolAllowlist: parent.toolAllowlist, // shared
 		logger:        log,
+		skillsDir:     "",
 	}
 
 	// Both should see the same allowlist
