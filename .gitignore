@@ -1,4 +1,5 @@
 .env
+dist/
 common/logger/log.txt
 common/logger/log_raw.txt
 # Ignore the entire directory contents, but not the directory itself
