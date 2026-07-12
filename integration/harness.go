@@ -28,6 +28,7 @@ type ConsoleHarness struct {
 	Slave  *os.File
 	data   chan string
 	errc   chan error
+	buf    strings.Builder
 }
 
 func NewConsoleHarness(t *testing.T) *ConsoleHarness {
@@ -82,19 +83,21 @@ func (h *ConsoleHarness) SendRaw(input string) {
 // Expect blocks until the given fragment appears in the PTY output or timeout fires.
 func (h *ConsoleHarness) Expect(expected string, timeout time.Duration) {
 	h.T.Helper()
-	var buf strings.Builder
 	deadline := time.After(timeout)
 	for {
+		if idx := strings.Index(h.buf.String(), expected); idx >= 0 {
+			remaining := h.buf.String()[idx+len(expected):]
+			h.buf.Reset()
+			h.buf.WriteString(remaining)
+			return
+		}
 		select {
 		case chunk := <-h.data:
-			buf.WriteString(chunk)
-			if strings.Contains(buf.String(), expected) {
-				return
-			}
+			h.buf.WriteString(chunk)
 		case err := <-h.errc:
 			h.T.Fatalf("stream error: %v", err)
 		case <-deadline:
-			h.T.Fatalf("timeout waiting for %q\ncaptured:\n%s", expected, buf.String())
+			h.T.Fatalf("timeout waiting for %q\ncaptured:\n%s", expected, h.buf.String())
 		}
 	}
 }

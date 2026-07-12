@@ -73,6 +73,116 @@ func TestLLMEmptyContent(t *testing.T) {
 	h.Expect("ai-harness > ", 5*time.Second)
 }
 
+func TestLLMVeryLongContent(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	longResp := "This is a substantial response. "
+	for i := 0; i < 50; i++ {
+		longResp += "The detail goes on and on. "
+	}
+
+	mockLLM := integration.NewMockLLMWithResponse(t, longResp)
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("tell me a lot")
+	h.Expect("substantial response", 5*time.Second)
+	h.Expect("ai-harness > ", 5*time.Second)
+}
+
+func TestMixedEmptyInputsAndRealInput(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponse(t, "Response")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	h.Send("")
+	h.Send("")
+	h.Send("real input")
+	h.Expect("Response", 5*time.Second)
+}
+
+func TestEmptyThenSlashThenRealInput(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponse(t, "OK")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	h.Send("")
+	h.Send("/help")
+	h.Expect("Available commands:", 3*time.Second)
+
+	h.Send("now talk")
+	h.Expect("OK", 5*time.Second)
+}
+
+func TestPromptReappearsAfterResponse(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponses(t, "First", "Second")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	h.Send("one")
+	h.Expect("First", 5*time.Second)
+
+	h.Send("two")
+	h.Expect("Second", 5*time.Second)
+}
+
+func TestLLMMultiLineContent(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponse(t, "Line one\nLine two\nLine three")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("multi line")
+	h.Expect("Line one", 5*time.Second)
+	h.Expect("ai-harness > ", 5*time.Second)
+}
+
+func TestUnicodeUserInput(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponse(t, "Unicode response")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("héllo wörld 你好")
+	h.Expect("Unicode response", 5*time.Second)
+}
+
+func TestShellSpecialCharactersInInput(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponse(t, "Got it")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("echo $HOME | grep test && echo done")
+	h.Expect("Got it", 5*time.Second)
+}
+
 func TestSlashCommandBetweenLLMTurns(t *testing.T) {
 	h := integration.NewConsoleHarness(t)
 	defer h.Close()
