@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"ai-harness/agent"
 	"ai-harness/app"
@@ -64,7 +65,7 @@ func main() {
 	}
 	appLogger.SystemLog("Loaded %d tools: %v", len(toolList), tools.GetToolNames(toolList))
 
-	loadedSkills, err := skills.LoadAllSkills("skills/skills")
+	loadedSkills, err := skills.LoadAllSkills(filepath.Join(tools.AssetBase(), "skills", "skills"))
 	if err != nil {
 		appLogger.SystemLog("Warning: could not load skills: %v", err)
 		loadedSkills = []skills.Skill{}

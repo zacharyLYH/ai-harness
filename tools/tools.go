@@ -5,10 +5,25 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"ai-harness/llm"
 )
+
+// AssetBase returns the directory that contains the app's bundled assets.
+// When run from the repo it is the current directory; otherwise it falls back
+// to the directory of the executable so an installed binary finds its files
+// regardless of where it is launched from.
+func AssetBase() string {
+	if _, err := os.Stat("tools"); err == nil {
+		return "."
+	}
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Dir(exe)
+	}
+	return "."
+}
 
 var ChecklistToolDefinition = llm.ToolDefinition{
 	Type: "function",
@@ -61,7 +76,7 @@ func NewDefaultToolManager() *DefaultToolManager {
 
 // RunToolLinting runs the lint_tools.py script and returns true if linting passes.
 func RunToolLinting(printer func(format string, args ...interface{})) bool {
-	cmd := exec.Command("python3", "tools/lint_tools.py")
+	cmd := exec.Command("python3", filepath.Join(AssetBase(), "tools", "lint_tools.py"))
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -81,7 +96,7 @@ func RunToolLinting(printer func(format string, args ...interface{})) bool {
 
 // LoadTools reads all Python tool files in the tools directory and returns Tool objects.
 func (m *DefaultToolManager) LoadTools() ([]llm.Tool, error) {
-	toolsDir := "tools"
+	toolsDir := filepath.Join(AssetBase(), "tools")
 	var tools []llm.Tool
 
 	files, err := os.ReadDir(toolsDir)

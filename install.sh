@@ -24,6 +24,13 @@ fi
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+# Tools are executed via python3, so it must be available.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Error: python3 is required but was not found in your PATH." >&2
+  echo "Install Python 3.10+ (https://www.python.org/downloads/) and try again." >&2
+  exit 1
+fi
+
 ARCHIVE="$TMP_DIR/$BINARY_NAME.tar.gz"
 
 echo "Downloading $BINARY_NAME ($OS/$ARCH)..."
@@ -44,5 +51,7 @@ fi
 echo "Installing to $INSTALL_DIR/$BINARY_NAME..."
 tar -xzf "$ARCHIVE" -C "$TMP_DIR"
 $SUDO install -m 0755 "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+$SUDO cp -R "$TMP_DIR/tools" "$INSTALL_DIR/"
+$SUDO cp -R "$TMP_DIR/skills" "$INSTALL_DIR/"
 
 echo "Done. Run '$BINARY_NAME' to start."

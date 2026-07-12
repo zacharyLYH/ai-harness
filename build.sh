@@ -27,7 +27,13 @@ for PLATFORM in "${PLATFORMS[@]}"; do
     go build -ldflags="-s -w" -o "$BUILD_DIR/$OUTPUT" .
 
   echo "Packaging ${BINARY_NAME}-${OS}-${ARCH}.tar.gz"
-  tar -czf "$BUILD_DIR/${BINARY_NAME}-${OS}-${ARCH}.tar.gz" -C "$BUILD_DIR" "$OUTPUT"
+  STAGE="$BUILD_DIR/stage-$OS-$ARCH"
+  rm -rf "$STAGE" && mkdir -p "$STAGE"
+  cp "$BUILD_DIR/$OUTPUT" "$STAGE/"
+  cp -R tools "$STAGE/"
+  cp -R skills "$STAGE/"
+  tar -czf "$BUILD_DIR/${BINARY_NAME}-${OS}-${ARCH}.tar.gz" -C "$STAGE" "$OUTPUT" tools skills
+  rm -rf "$STAGE"
   rm -f "$BUILD_DIR/$OUTPUT"
 done
 
