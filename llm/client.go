@@ -12,6 +12,8 @@ import (
 	"ai-harness/common/logger"
 )
 
+const defaultModel = "poolside/laguna-m.1-20260312:free"
+
 // Client defines the interface for LLM interactions.
 // This can be mocked for testing.
 type Client interface {
@@ -21,20 +23,49 @@ type Client interface {
 // OpenRouterClient implements Client using the OpenRouter API.
 type OpenRouterClient struct {
 	apiKey string
+	model  string
 	logger *logger.Logger
 }
 
-// NewOpenRouterClient creates a new OpenRouter client.
+// NewOpenRouterClient creates a new OpenRouter client using the key from the
+// OPENROUTER_API_KEY environment variable.
 func NewOpenRouterClient(logger *logger.Logger) *OpenRouterClient {
 	return &OpenRouterClient{
 		apiKey: os.Getenv("OPENROUTER_API_KEY"),
+		model:  defaultModel,
 		logger: logger,
 	}
 }
 
+// NewOpenRouterClientWithKey creates a new OpenRouter client with an explicit key.
+func NewOpenRouterClientWithKey(logger *logger.Logger, apiKey string) *OpenRouterClient {
+	return &OpenRouterClient{
+		apiKey: apiKey,
+		model:  defaultModel,
+		logger: logger,
+	}
+}
+
+// TestConnection verifies the API key by sending a minimal request to the
+// openrouter/free model.
+func (c *OpenRouterClient) TestConnection() error {
+	resp, err := c.complete("openrouter/free", []Message{{Role: "user", Content: "ping"}}, nil)
+	if err != nil {
+		return err
+	}
+	if len(resp.Choices) == 0 {
+		return fmt.Errorf("unexpected empty response from OpenRouter")
+	}
+	return nil
+}
+
 // Chat sends a chat completion request to OpenRouter with exponential backoff retry.
 func (c *OpenRouterClient) Chat(messages []Message, tools []ToolDefinition) (*ChatResponse, error) {
-	model := "openrouter/free"
+	return c.complete(c.model, messages, tools)
+}
+
+// complete sends a chat completion request to OpenRouter with exponential backoff retry.
+func (c *OpenRouterClient) complete(model string, messages []Message, tools []ToolDefinition) (*ChatResponse, error) {
 	temperature := 0.7
 	maxToken := 1000
 
