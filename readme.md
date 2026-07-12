@@ -8,10 +8,10 @@ curl -sSL https://raw.githubusercontent.com/zacharyLYH/ai-harness/main/install.s
 You will also need to get an [Openrouter API key](https://openrouter.ai/workspaces/default/keys)
 
 # Features
-1. Basic agentic loop with read/write file abilities
-2. Consent request for tool calls if NeedUserConsent = true
+1. Bash access that requires consent before execution
+2. General consent request for tool calls
 3. Skills
-4. Loading indicator in chat session
+4. Checklists and subagents, to keep the model in line and focused on the overall goal
 5. Basic web search using duckduckgo api
 
 # Test it out
