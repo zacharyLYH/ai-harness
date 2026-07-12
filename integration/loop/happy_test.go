@@ -71,3 +71,87 @@ func TestUnknownSlashCommand(t *testing.T) {
 	// Slash commands must not call the LLM
 	mockLLM.EXPECT().Chat(mock.Anything, mock.Anything).Maybe()
 }
+
+func TestManyConsecutiveEmptyInputs(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := mocks.NewClient(t)
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	for i := 0; i < 10; i++ {
+		h.Send("")
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	h.Expect("ai-harness > ", 2*time.Second)
+}
+
+func TestWhitespaceOnlyVariations(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := mocks.NewClient(t)
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	h.Send("  ")
+	h.Send("\t")
+	h.Send("   \t  \t  ")
+	h.Send("")
+
+	time.Sleep(300 * time.Millisecond)
+	h.Expect("ai-harness > ", 2*time.Second)
+}
+
+func TestMultipleSlashCommandsInSequence(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := mocks.NewClient(t)
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	h.Send("/help")
+	h.Expect("Available commands:", 3*time.Second)
+
+	h.Send("/context")
+	h.Expect("0 words", 3*time.Second)
+
+	h.Send("/skills")
+	h.Expect("No skills loaded", 3*time.Second)
+}
+
+func TestSlashCommandWithLeadingWhitespace(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := mocks.NewClient(t)
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	h.Send("  /help")
+	h.Expect("Available commands:", 3*time.Second)
+}
+
+func TestSlashPermsEmpty(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := mocks.NewClient(t)
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("/perms")
+	h.Expect("No permissions granted yet", 3*time.Second)
+}

@@ -1,13 +1,12 @@
 package tui
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/chzyer/readline"
 )
 
 const (
@@ -70,13 +69,10 @@ func Consent(toolName, explanation, argsSummary string) (bool, error) {
 		fmt.Printf("\nTool '%s' wants to run with args: %s\n", toolName, argsSummary)
 	}
 
-	rl, err := readline.New("Allow? " + Yellow + "(y/N)" + Reset + ": ")
-	if err != nil {
-		return false, err
-	}
-	defer rl.Close()
+	fmt.Printf("Allow? %s(y/N)%s: ", Yellow, Reset)
 
-	line, err := rl.Readline()
+	scanner := bufio.NewReader(os.Stdin)
+	line, err := scanner.ReadString('\n')
 	if err != nil {
 		return false, err
 	}

@@ -16,10 +16,13 @@ import (
 // When rw is nil, standard os.Stdin/os.Stdout are used.
 func RunInteractiveLoop(agt *agent.Agent, tools []llm.Tool, prompt string, rw io.ReadWriter) {
 	if rw != nil {
-		origStdout, origStderr := os.Stdout, os.Stderr
-		os.Stdout = rw.(*os.File)
-		os.Stderr = rw.(*os.File)
+		f := rw.(*os.File)
+		origStdin, origStdout, origStderr := os.Stdin, os.Stdout, os.Stderr
+		os.Stdin = f
+		os.Stdout = f
+		os.Stderr = f
 		defer func() {
+			os.Stdin = origStdin
 			os.Stdout = origStdout
 			os.Stderr = origStderr
 		}()

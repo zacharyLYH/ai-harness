@@ -196,3 +196,4 @@ func (a *Agent) addToolTurn(messages []llm.Message, assistantMessage llm.Message
 	a.logger.LogTurnStart(a.turnCount)
 	return messages
 }
+

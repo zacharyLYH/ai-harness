@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"ai-harness/integration"
-	"ai-harness/llm"
 	"ai-harness/llm/mocks"
 
 	"github.com/stretchr/testify/mock"
@@ -15,17 +14,7 @@ func TestSingleTurn(t *testing.T) {
 	h := integration.NewConsoleHarness(t)
 	defer h.Close()
 
-	mockLLM := mocks.NewClient(t)
-	mockLLM.EXPECT().
-		Chat(mock.Anything, mock.Anything).
-		Return(&llm.ChatResponse{
-			Choices: []llm.Choice{{
-				FinishReason: "stop",
-				Message:      llm.Message{Content: "Hello! How can I help you?"},
-			}},
-		}, nil).
-		Once()
-
+	mockLLM := integration.NewMockLLMWithResponse(t, "Hello! How can I help you?")
 	agt := integration.NewTestAgent(t, mockLLM)
 	integration.BootLoop(t, h, agt, nil)
 
@@ -38,26 +27,7 @@ func TestMultiTurn(t *testing.T) {
 	h := integration.NewConsoleHarness(t)
 	defer h.Close()
 
-	mockLLM := mocks.NewClient(t)
-	mockLLM.EXPECT().
-		Chat(mock.Anything, mock.Anything).
-		Return(&llm.ChatResponse{
-			Choices: []llm.Choice{{
-				FinishReason: "stop",
-				Message:      llm.Message{Content: "First response"},
-			}},
-		}, nil).
-		Once()
-	mockLLM.EXPECT().
-		Chat(mock.Anything, mock.Anything).
-		Return(&llm.ChatResponse{
-			Choices: []llm.Choice{{
-				FinishReason: "stop",
-				Message:      llm.Message{Content: "Second response"},
-			}},
-		}, nil).
-		Once()
-
+	mockLLM := integration.NewMockLLMWithResponses(t, "First response", "Second response")
 	agt := integration.NewTestAgent(t, mockLLM)
 	integration.BootLoop(t, h, agt, nil)
 
@@ -68,6 +38,99 @@ func TestMultiTurn(t *testing.T) {
 
 	h.Send("second message")
 	h.Expect("Second response", 5*time.Second)
+}
+
+func TestLongInput(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponse(t, "Got it")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	longMsg := "This is a very long message with lots of words. " +
+		"The quick brown fox jumps over the lazy dog. " +
+		"Pack my box with five dozen liquor jugs. " +
+		"How vexingly quick daft zebras jump! " +
+		"The five boxing wizards jump quickly."
+	h.Send(longMsg)
+	h.Expect("Got it", 5*time.Second)
+}
+
+func TestLLMEmptyContent(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponse(t, "")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("tell me something")
+	// Even with empty content, the loop prints separators and re-prompts
+	h.Expect("ai-harness > ", 5*time.Second)
+}
+
+func TestSlashCommandBetweenLLMTurns(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponses(t, "First answer", "Second answer")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	h.Send("question one")
+	h.Expect("First answer", 5*time.Second)
+
+	h.Send("/context")
+	h.Expect("words", 3*time.Second)
+
+	h.Send("question two")
+	h.Expect("Second answer", 5*time.Second)
+}
+
+func TestLLMContentWithSpecialChars(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := integration.NewMockLLMWithResponse(t, "Symbols: @#$%^&*() and quotes \"hello\" and path /usr/bin")
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+	h.Send("show me symbols")
+	h.Expect("@#$%^&*()", 5*time.Second)
+}
+
+func TestRapidSuccessiveInputs(t *testing.T) {
+	h := integration.NewConsoleHarness(t)
+	defer h.Close()
+
+	mockLLM := mocks.NewClient(t)
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Return(integration.NewStopResponse("Reply"), nil).
+		Once()
+	// readline feeds lines one at a time; "second" may be read after
+	// the first turn completes, triggering a second LLM call.
+	mockLLM.EXPECT().
+		Chat(mock.Anything, mock.Anything).
+		Return(integration.NewStopResponse("Reply"), nil).
+		Maybe()
+
+	agt := integration.NewTestAgent(t, mockLLM)
+	integration.BootLoop(t, h, agt, nil)
+
+	h.Expect("ai-harness > ", 3*time.Second)
+
+	h.Send("first")
+	h.Send("second")
+	h.Send("third")
+	h.Expect("Reply", 5*time.Second)
 }
 
 func TestSlashHelp(t *testing.T) {
